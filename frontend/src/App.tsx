@@ -2,15 +2,13 @@ import { useState, useEffect } from 'react';
 import './App.css';
 import { Container, Grid, Card, CardContent, CardMedia, Typography, TextField, Button, Box } from '@mui/material';
 
-
 function App() {
   const [images, setImages] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // APIから画像データを取得する関数
   const fetchImages = (query = '') => {
-    // 検索クエリがあればURLに追加
     const url = `http://localhost:8000/api/images${query ? `?query=${query}` : ''}`;
+    console.log(`Fetching images from: ${url}`);
     fetch(url)
       .then(response => {
         if (!response.ok) {
@@ -28,53 +26,51 @@ function App() {
   };
 
   useEffect(() => {
-    fetchImages(); // 初期ロード時に全画像を取得
+    fetchImages();
   }, []);
 
-  // 検索ボタンクリック時の処理
   const handleSearch = () => {
     fetchImages(searchQuery);
   };
 
   return (
-    <Container>
-      <Typography variant="h2" component="h1" gutterBottom sx={{ mt: 4 }}>
-        AI Image Manager
-      </Typography>
+    <Container maxWidth={false} disableGutters>
+      <Box sx={{ p: 2 }}>
+        <Typography variant="h2" component="h1" gutterBottom sx={{ mt: 4 }}>
+          AI Image Manager
+        </Typography>
 
-      <Box sx={{ display: 'flex', mb: 4, gap: 2 }}>
-        <TextField
-          label="Search images..."
-          variant="outlined"
-          fullWidth
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-        />
-        <Button
-          variant="contained"
-          size="large"
-          onClick={handleSearch}
-        >
-          Search
-        </Button>
+        <Box sx={{ display: 'flex', mb: 4, gap: 2 }}>
+          <TextField
+            label="Search images..."
+            variant="outlined"
+            fullWidth
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          <Button
+            variant="contained"
+            size="large"
+            onClick={handleSearch}
+          >
+            Search
+          </Button>
+        </Box>
       </Box>
 
-      {/* ... (残りの画像表示部分) */}
       {images.length > 0 ? (
-        <Grid container spacing={3}>
+        <Grid container spacing={0}>
           {images.map((image) => (
-            <Grid item xs={12} sm={6} md={4} key={image.id}>
-              <Card>
+            <Grid item xs={12} sm={6} md={3} lg={2} key={image.id}>
+              <Card sx={{ borderRadius: 0, height: '100%' }}>
                 <CardMedia
                   component="img"
                   height="140"
                   image={`http://localhost:8000/images/${image.image_path}`}
                   alt={image.filename}
+                  sx={{ objectFit: 'contain' }}
                 />
-                <CardContent>
-                  <Typography variant="h6" component="h2" noWrap>
-                    {image.filename}
-                  </Typography>
+                <CardContent sx={{ height: '100%' }}>
                   <Typography variant="body2" color="text.secondary" noWrap>
                     {image.prompt}
                   </Typography>
