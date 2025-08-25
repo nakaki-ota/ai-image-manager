@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import './App.css';
-import { Container, Grid, Card, CardContent, CardMedia, Typography, TextField, Button, Box } from '@mui/material';
+import { Container, Grid, Card, CardMedia, Typography, TextField, Button, Box, Rating } from '@mui/material';
+import StarBorderIcon from '@mui/icons-material/StarBorder';
 
 function App() {
   const [images, setImages] = useState([]);
@@ -34,9 +35,9 @@ function App() {
   };
 
   return (
-    <Container maxWidth={false} disableGutters>
+    <Container sx={{ pt: 4, pb: 4 }}>
       <Box sx={{ p: 2 }}>
-        <Typography variant="h2" component="h1" gutterBottom sx={{ mt: 4 }}>
+        <Typography variant="h2" component="h1" gutterBottom>
           AI Image Manager
         </Typography>
 
@@ -59,22 +60,37 @@ function App() {
       </Box>
 
       {images.length > 0 ? (
-        <Grid container spacing={0}>
+        <Grid container spacing={2}>
           {images.map((image) => (
-            <Grid item xs={12} sm={6} md={3} lg={2} key={image.id}>
-              <Card sx={{ borderRadius: 0, height: '100%' }}>
+            <Grid item key={image.id}>
+              <Card sx={{ width: 200, position: 'relative' }}>
                 <CardMedia
                   component="img"
-                  height="140"
                   image={`http://localhost:8000/images/${image.image_path}`}
                   alt={image.filename}
-                  sx={{ objectFit: 'contain' }}
+                  sx={{ width: 200, objectFit: 'contain' }}
                 />
-                <CardContent sx={{ height: '100%' }}>
-                  <Typography variant="body2" color="text.secondary" noWrap>
-                    {image.prompt}
-                  </Typography>
-                </CardContent>
+
+                <Box sx={{ 
+                  position: 'absolute', 
+                  bottom: 0, 
+                  right: 0, 
+                  // 背景色の領域を星のサイズに合わせる
+                  backgroundColor: 'rgba(0,0,0,0.5)',
+                  borderRadius: '4px 0 0 0',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  <Rating
+                    name={`rating-${image.id}`}
+                    value={image.rating}
+                    precision={0.5}
+                    readOnly
+                    emptyIcon={<StarBorderIcon fontSize="inherit" style={{ color: 'white' }} />}
+                    sx={{ p: 0.5 }} // Ratingコンポーネント自体にパディングを追加
+                  />
+                </Box>
               </Card>
             </Grid>
           ))}
