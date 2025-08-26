@@ -4,14 +4,12 @@ import json
 import datetime
 import aiosqlite
 import re
-from PIL import Image
-import png
 from typing import Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-import asyncio # asyncioを追加
+import asyncio
 
 app = FastAPI()
 
@@ -37,10 +35,11 @@ class RatingUpdate(BaseModel):
 # 静的ファイル（画像）を提供するための設定
 app.mount("/images", StaticFiles(directory="images"), name="images")
 
-async def sync():
+# 新しいエンドポイントを追加
+@app.post("/api/images/sync")
+async def sync_images_to_db():
     """
     Scans the images directory and updates the database with image metadata.
-    This function will be called on application startup.
     """
     print("--- Starting database sync ---")
 
@@ -50,12 +49,16 @@ async def sync():
         print(f"Created database directory: {db_dir}")
 
     async with aiosqlite.connect(DATABASE_PATH) as db:
+        # テーブル存在チェックはAlembicに任せるため削除
+
         cursor = await db.execute("SELECT image_path FROM images")
         existing_paths = {row[0] for row in await cursor.fetchall()}
         
         image_files = glob.glob(os.path.join("images", "**", "*.png"), recursive=True)
         new_files = [f for f in image_files if os.path.relpath(f, "images") not in existing_paths]
         print(f"Found {len(new_files)} new images to process.")
+        
+        synced_count = 0
         
         for file_path in new_files:
             relative_path = os.path.relpath(file_path, "images")
@@ -87,15 +90,13 @@ async def sync():
                     (filename, relative_path, datetime.datetime.now(), prompt, negative_prompt, parameters, 0)
                 )
                 print(f"Successfully inserted {filename} into database.")
+                synced_count += 1
             except Exception as e:
                 print(f"Error inserting {filename} into database: {e}")
 
         await db.commit()
-    print("--- Database sync complete ---")
-
-@app.on_event("startup")
-async def startup_event():
-    await sync()
+    print(f"--- Database sync complete. Synced {synced_count} new images. ---")
+    return {"message": f"Synced {synced_count} new images."}
 
 @app.get("/api/images")
 async def list_images_and_search(query: Optional[str] = None):
@@ -124,7 +125,7 @@ async def list_images_and_search(query: Optional[str] = None):
                 "id": row[0],
                 "filename": row[1],
                 "image_path": row[2],
-                "rating": row[3], # ratingを追加
+                "rating": row[3],
             })
             
         return {"images": images}
