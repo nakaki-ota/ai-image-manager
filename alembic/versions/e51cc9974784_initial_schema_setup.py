@@ -1,8 +1,8 @@
-"""create images table
+"""Initial schema setup
 
-Revision ID: cb7cbc498079
+Revision ID: e51cc9974784
 Revises: 
-Create Date: 2025-08-24 03:42:24.516648
+Create Date: 2025-08-26 13:14:55.857812
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'cb7cbc498079'
+revision: str = 'e51cc9974784'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

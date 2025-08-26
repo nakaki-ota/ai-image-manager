@@ -34,6 +34,34 @@ function App() {
     fetchImages(searchQuery);
   };
 
+  const handleRatingChange = (imageId, newRating) => {
+    // APIに評価更新リクエストを送信
+    fetch(`http://localhost:8000/api/images/${imageId}/rate`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ rating: newRating }),
+    })
+    .then(response => {
+      if (!response.ok) {
+        throw new Error('Rating update failed');
+      }
+      return response.json();
+    })
+    .then(() => {
+      // 成功したら、ローカルの状態を更新
+      setImages(prevImages =>
+        prevImages.map(img =>
+          img.id === imageId ? { ...img, rating: newRating } : img
+        )
+      );
+    })
+    .catch(error => {
+      console.error('Failed to update rating:', error);
+    });
+  };
+
   return (
     <Container sx={{ pt: 4, pb: 4 }}>
       <Box sx={{ p: 2 }}>
@@ -75,7 +103,6 @@ function App() {
                   position: 'absolute', 
                   bottom: 0, 
                   right: 0, 
-                  // 背景色の領域を星のサイズに合わせる
                   backgroundColor: 'rgba(0,0,0,0.5)',
                   borderRadius: '4px 0 0 0',
                   display: 'flex',
@@ -86,9 +113,12 @@ function App() {
                     name={`rating-${image.id}`}
                     value={image.rating}
                     precision={0.5}
-                    readOnly
+                    // readOnlyを削除し、onChangeを追加
+                    onChange={(event, newRating) => {
+                      handleRatingChange(image.id, newRating);
+                    }}
                     emptyIcon={<StarBorderIcon fontSize="inherit" style={{ color: 'white' }} />}
-                    sx={{ p: 0.5 }} // Ratingコンポーネント自体にパディングを追加
+                    sx={{ p: 0.5 }}
                   />
                 </Box>
               </Card>
