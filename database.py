@@ -1,5 +1,5 @@
 import datetime
-from sqlalchemy import MetaData, Table, Column, Integer, String, DateTime, Text, Float
+from sqlalchemy import MetaData, Table, Column, Integer, String, DateTime, Text
 
 metadata = MetaData()
 
@@ -9,7 +9,7 @@ images_table = Table(
     Column("id", Integer, primary_key=True),
     Column("filename", String),
     Column("image_path", String, unique=True),
-    Column("rating", Float, default=0.0),
+    Column("rating", Integer, default=0),
     Column("created_at", DateTime, default=datetime.datetime.now),
     Column("prompt", Text),
     Column("negative_prompt", Text),

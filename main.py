@@ -30,7 +30,7 @@ app.add_middleware(
 DATABASE_PATH = "db/image_metadata.db"
 
 class RatingUpdate(BaseModel):
-    rating: Optional[float] = None
+    rating: int
 
 # 静的ファイル（画像）を提供するための設定
 app.mount("/images", StaticFiles(directory="images"), name="images")
@@ -132,8 +132,8 @@ async def list_images_and_search(query: Optional[str] = None):
 
 @app.put("/api/images/{image_id}/rate")
 async def update_image_rating(image_id: int, rating_update: RatingUpdate):
-    if not rating_update.rating or rating_update.rating < 0 or rating_update.rating > 5:
-        raise HTTPException(status_code=400, detail="Invalid rating value")
+    if rating_update.rating < 0 or rating_update.rating > 5:
+        raise HTTPException(status_code=400, detail="Invalid rating value. Must be an integer between 0 and 5.")
 
     try:
         async with aiosqlite.connect(DATABASE_PATH) as db:

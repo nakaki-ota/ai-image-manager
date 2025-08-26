@@ -1,8 +1,8 @@
 """Initial schema setup
 
-Revision ID: e51cc9974784
+Revision ID: c34f8c912a21
 Revises: 
-Create Date: 2025-08-26 13:14:55.857812
+Create Date: 2025-08-26 14:05:06.338675
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'e51cc9974784'
+revision: str = 'c34f8c912a21'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -25,7 +25,7 @@ def upgrade() -> None:
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('filename', sa.String(), nullable=True),
     sa.Column('image_path', sa.String(), nullable=True),
-    sa.Column('rating', sa.Float(), nullable=True),
+    sa.Column('rating', sa.Integer(), nullable=True),
     sa.Column('created_at', sa.DateTime(), nullable=True),
     sa.Column('prompt', sa.Text(), nullable=True),
     sa.Column('negative_prompt', sa.Text(), nullable=True),

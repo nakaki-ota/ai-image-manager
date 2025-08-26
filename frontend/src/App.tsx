@@ -38,7 +38,9 @@ function App() {
     fetchImages(searchQuery);
   };
 
-  const handleRatingChange = async (imageId, newRating) => {
+  const handleRatingChange = async (imageId: number, newRating: number | null) => {
+    if (newRating === null) return;
+    
     try {
       const response = await fetch(`${API_URL}/images/${imageId}/rate`, {
         method: 'PUT',
@@ -52,7 +54,7 @@ function App() {
       }
       setImages(prevImages =>
         prevImages.map(img =>
-          img.id === imageId ? { ...img, rating: newRating } : img
+          (img as any).id === imageId ? { ...img, rating: newRating } : img
         )
       );
     } catch (err) {
@@ -72,7 +74,7 @@ function App() {
         throw new Error('Failed to sync images');
       }
       const data = await response.json();
-      await fetchImages(); // 同期完了後に画像リストを再取得
+      await fetchImages();
       alert(data.message);
     } catch (err) {
       console.error('Failed to sync images:', err);
@@ -122,7 +124,7 @@ function App() {
         <Box sx={{ display: 'flex', justifyContent: 'center' }}><CircularProgress /></Box>
       ) : images.length > 0 ? (
         <Grid container spacing={2}>
-          {images.map((image) => (
+          {images.map((image: any) => (
             <Grid item xs={12} sm={6} md={4} lg={3} key={image.id}>
               <Card sx={{ position: 'relative' }}>
                 <CardMedia
@@ -132,27 +134,26 @@ function App() {
                   sx={{ height: 250, objectFit: 'contain' }}
                 />
 
-                {/* ここから評価表示部分のスタイルを修正 */}
                 <Box sx={{ 
                   position: 'absolute', 
                   bottom: 0, 
                   right: 0, 
-                  backgroundColor: 'rgba(0,0,0,0.3)', // 透過度を30%に
+                  backgroundColor: 'rgba(0,0,0,0.3)',
                   borderRadius: '4px 0 0 0',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  p: 0.5 // パディングを少し減らす
+                  p: 0.5 
                 }}>
                   <Rating
                     name={`rating-${image.id}`}
                     value={image.rating || 0}
-                    precision={0.5}
+                    precision={1}
                     onChange={(event, newRating) => {
                       handleRatingChange(image.id, newRating);
                     }}
                     emptyIcon={<StarBorderIcon fontSize="inherit" style={{ color: 'white' }} />}
-                    sx={{ p: 0 }} // Ratingコンポーネント自体のパディングを削除
+                    sx={{ p: 0 }}
                   />
                 </Box>
               </Card>
