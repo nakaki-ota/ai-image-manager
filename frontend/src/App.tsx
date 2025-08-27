@@ -21,9 +21,11 @@ interface ImageMetaData {
   rating: number;
 }
 
+// APIレスポンスの型を修正
 interface ImagesResponse {
     images: ImageMetaData[];
-    total_count: number;
+    total_search_results_count: number; // 検索結果の総件数
+    total_database_count: number;      // DBに登録されている総件数
 }
 
 function App() {
@@ -36,7 +38,10 @@ function App() {
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [totalImages, setTotalImages] = useState(0);
+  
+  const [totalSearchResults, setTotalSearchResults] = useState<number | null>(null); // nullで初期化
+  const [totalDatabaseCount, setTotalDatabaseCount] = useState<number | null>(null);    // nullで初期化
+  
   const [imagesPerPage, setImagesPerPage] = useState<number>(25);
 
   const fetchImages = async (query = '', page = 1, limit = imagesPerPage) => {
@@ -60,7 +65,8 @@ function App() {
       const data: ImagesResponse = await response.json();
       
       setImages(data.images);
-      setTotalImages(data.total_count);
+      setTotalSearchResults(data.total_search_results_count);
+      setTotalDatabaseCount(data.total_database_count);
       setCurrentPage(page);
 
     } catch (err: any) {
@@ -88,7 +94,7 @@ function App() {
 
   useEffect(() => {
     fetchImages('', 1, imagesPerPage);
-  }, []);
+  }, []); // 依存配列を空にして、初回レンダリング時のみ実行するように変更
 
   const handleSearch = () => {
     fetchImages(searchQuery, 1, imagesPerPage);
@@ -184,7 +190,7 @@ function App() {
     fetchImages(searchQuery, 1, newLimit);
   };
 
-  const totalPages = Math.ceil(totalImages / imagesPerPage);
+  const totalPages = Math.ceil((totalSearchResults || 0) / imagesPerPage); 
 
   const renderMetaData = (image: ImageMetaData | null) => {
     if (!image) return null;
@@ -208,7 +214,6 @@ function App() {
 
   return (
     <Container sx={{ pt: 2, pb: 2 }}>
-      {/* 修正対象のBox */}
       <Box 
         sx={{
           p: 1,
@@ -271,62 +276,84 @@ function App() {
       </Box>
 
       {error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
-
+      
       {loading && images.length === 0 ? (
         <Box sx={{ display: 'flex', justifyContent: 'center' }}><CircularProgress /></Box>
-      ) : images.length > 0 ? (
+      ) : (
         <>
-          <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1 }}>
-            <Pagination count={totalPages} page={currentPage} onChange={handlePageChange} size="small" />
+          {/* ページネーション上部の件数表示 - 修正済み */}
+          <Box sx={{ display: 'flex', flexDirection: 'column', mb: 1 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', mb: 0.5 }}>
+              <Typography variant="body1">
+                {(totalSearchResults || 0).toLocaleString()} 件 / {(totalDatabaseCount || 0).toLocaleString()} 件
+              </Typography>
+            </Box>
+            {totalSearchResults !== null && totalSearchResults > 0 && (
+              <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                <Pagination count={totalPages} page={currentPage} onChange={handlePageChange} size="small" />
+              </Box>
+            )}
           </Box>
           
-          <Grid container spacing={1}>
-            {images.map((image: any) => (
-              <Grid item xs={12} sm={6} md={4} lg={3} key={image.id}>
-                <Card sx={{ position: 'relative', cursor: 'pointer' }} onClick={() => handleOpenModal(image)}>
-                  <CardMedia
-                    component="img"
-                    image={`http://localhost:8000/images/${image.image_path}`}
-                    alt={image.filename}
-                    sx={{ height: 200, objectFit: 'cover' }}
-                  />
-  
-                  <Box sx={{ 
-                    position: 'absolute', 
-                    bottom: 0, 
-                    right: 0, 
-                    backgroundColor: 'rgba(0,0,0,0.3)',
-                    borderRadius: '4px 0 0 0',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    p: 0.5 
-                  }}>
-                    <Rating
-                      name={`rating-${image.id}`}
-                      value={image.rating || 0}
-                      precision={1}
-                      onChange={(event, newRating) => {
-                        event.stopPropagation();
-                        handleRatingChange(image.id, newRating);
-                      }}
-                      emptyIcon={<StarBorderIcon fontSize="inherit" style={{ color: 'white' }} />}
-                      sx={{ p: 0 }}
+          {images.length > 0 ? (
+            <Grid container spacing={1}>
+              {images.map((image: any) => (
+                <Grid item xs={12} sm={6} md={4} lg={3} key={image.id}>
+                  <Card sx={{ position: 'relative', cursor: 'pointer' }} onClick={() => handleOpenModal(image)}>
+                    <CardMedia
+                      component="img"
+                      image={`http://localhost:8000/images/${image.image_path}`}
+                      alt={image.filename}
+                      sx={{ height: 200, objectFit: 'cover' }}
                     />
-                  </Box>
-                </Card>
-              </Grid>
-            ))}
-          </Grid>
-          
-          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
-            <Pagination count={totalPages} page={currentPage} onChange={handlePageChange} size="small" />
+    
+                    <Box sx={{ 
+                      position: 'absolute', 
+                      bottom: 0, 
+                      right: 0, 
+                      backgroundColor: 'rgba(0,0,0,0.3)',
+                      borderRadius: '4px 0 0 0',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      p: 0.5 
+                    }}>
+                      <Rating
+                        name={`rating-${image.id}`}
+                        value={image.rating || 0}
+                        precision={1}
+                        onChange={(event, newRating) => {
+                          event.stopPropagation();
+                          handleRatingChange(image.id, newRating);
+                        }}
+                        emptyIcon={<StarBorderIcon fontSize="inherit" style={{ color: 'white' }} />}
+                        sx={{ p: 0 }}
+                      />
+                    </Box>
+                  </Card>
+                </Grid>
+              ))}
+            </Grid>
+          ) : (
+            <Typography variant="body1" sx={{ mt: 1, textAlign: 'center' }}>
+              画像が見つかりません。画像を同期してみてください。
+            </Typography>
+          )}
+
+          {/* ページネーション下部の件数表示 - 修正済み */}
+          <Box sx={{ display: 'flex', flexDirection: 'column', mt: 1 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', mb: 0.5 }}>
+              <Typography variant="body1">
+                {(totalSearchResults || 0).toLocaleString()} 件 / {(totalDatabaseCount || 0).toLocaleString()} 件
+              </Typography>
+            </Box>
+            {totalSearchResults !== null && totalSearchResults > 0 && (
+              <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                <Pagination count={totalPages} page={currentPage} onChange={handlePageChange} size="small" />
+              </Box>
+            )}
           </Box>
         </>
-      ) : (
-        <Typography variant="body1" sx={{ mt: 1, textAlign: 'center' }}>
-          No images found. Try syncing images.
-        </Typography>
       )}
 
       <Dialog open={openModal} onClose={handleCloseModal} maxWidth="md" fullWidth>

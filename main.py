@@ -129,6 +129,15 @@ async def list_images_and_search(
             where_clause = ""
             params = ()
 
+        # 検索結果の件数を取得 (既存のロジック)
+        cursor = await db.execute(f"SELECT COUNT(*) FROM images {where_clause}", params)
+        total_search_results_count = (await cursor.fetchone())[0]
+
+        # データベース全体の件数を取得 (新規追加)
+        cursor = await db.execute("SELECT COUNT(*) FROM images")
+        total_database_count = (await cursor.fetchone())[0]
+
+        # 画像リストを取得
         cursor = await db.execute(
             f"""
             SELECT
@@ -151,13 +160,11 @@ async def list_images_and_search(
                 "image_path": row[2],
                 "rating": row[3],
             })
-
-        cursor = await db.execute(f"SELECT COUNT(*) FROM images {where_clause}", params)
-        total_count = (await cursor.fetchone())[0]
-
+        
         return {
             "images": images,
-            "total_count": total_count
+            "total_search_results_count": total_search_results_count,
+            "total_database_count": total_database_count
         }
 
 @app.get("/api/images/{image_id}")
