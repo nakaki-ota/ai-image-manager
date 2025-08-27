@@ -1,6 +1,5 @@
 import os
 import glob
-import json
 import datetime
 import aiosqlite
 import re
@@ -11,6 +10,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import asyncio
 import png
+
+# database.pyから必要な定義をインポート
+# Alembicを使用するため、ここではデータベース接続パスのみを定義
+DATABASE_PATH = "db/image_metadata.db"
+IMAGE_DIR = "images"
+
+class RatingUpdate(BaseModel):
+    rating: int
 
 app = FastAPI()
 
@@ -28,19 +35,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DATABASE_PATH = "db/image_metadata.db"
-IMAGE_DIR = "images"
-
-class RatingUpdate(BaseModel):
-    rating: int
-
 app.mount("/images", StaticFiles(directory=IMAGE_DIR), name="images")
-
-@app.on_event("startup")
-async def startup_event():
-    db_dir = os.path.dirname(DATABASE_PATH)
-    if not os.path.exists(db_dir):
-        os.makedirs(db_dir)
 
 def extract_metadata(file_path: str):
     prompt = ""
@@ -65,11 +60,8 @@ def extract_metadata(file_path: str):
                         for line in lines[1:]:
                             if line.startswith("Negative prompt:"):
                                 negative_prompt = line.replace("Negative prompt:", "").strip()
-                    
-                    elif key == "prompt":
-                        prompt = value.strip()
-                    elif key == "negative_prompt":
-                        negative_prompt = value.strip()
+                        
+                        break
     
     except Exception as e:
         print(f"Error reading PNG metadata for {file_path}: {e}")
@@ -99,15 +91,18 @@ async def sync_images_to_db():
             
             metadata = extract_metadata(file_path)
             
+            parameters_raw = metadata["parameters"]
+            search_text_data = parameters_raw.replace('\n', ' ').strip()
+            
             try:
                 await db.execute(
                     """
                     INSERT INTO images (
-                        filename, image_path, created_at, prompt, negative_prompt, parameters, rating
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        filename, image_path, created_at, parameters, search_text, rating
+                    ) VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     (filename, relative_path, datetime.datetime.now(), 
-                     metadata["prompt"], metadata["negative_prompt"], metadata["parameters"], 0)
+                     parameters_raw, search_text_data, 0)
                 )
                 print(f"Successfully inserted {filename} into database.")
                 synced_count += 1
@@ -127,15 +122,13 @@ async def list_images_and_search(
     offset = (page - 1) * limit
     async with aiosqlite.connect(DATABASE_PATH) as db:
         
-        # 検索条件を構築
         if query:
-            where_clause = "WHERE prompt LIKE ? OR negative_prompt LIKE ?"
-            params = (f"%{query}%", f"%{query}%")
+            where_clause = "WHERE LOWER(search_text) LIKE ?"
+            params = (f"%{query.lower()}%",)
         else:
             where_clause = ""
             params = ()
 
-        # 画像リストを取得
         cursor = await db.execute(
             f"""
             SELECT
@@ -146,7 +139,7 @@ async def list_images_and_search(
             ORDER BY created_at DESC
             LIMIT ? OFFSET ?
             """,
-            (*params, limit, offset)
+            params + (limit, offset)
         )
         rows = await cursor.fetchall()
         
@@ -159,7 +152,6 @@ async def list_images_and_search(
                 "rating": row[3],
             })
 
-        # 総件数を取得
         cursor = await db.execute(f"SELECT COUNT(*) FROM images {where_clause}", params)
         total_count = (await cursor.fetchone())[0]
 
@@ -174,7 +166,7 @@ async def get_image_detail(image_id: int):
         cursor = await db.execute(
             """
             SELECT
-                id, filename, image_path, rating, created_at, prompt, negative_prompt, parameters
+                id, filename, image_path, rating, created_at, parameters
             FROM
                 images
             WHERE
@@ -191,9 +183,7 @@ async def get_image_detail(image_id: int):
                 "image_path": row[2],
                 "rating": row[3],
                 "created_at": row[4],
-                "prompt": row[5],
-                "negative_prompt": row[6],
-                "parameters": row[7],
+                "parameters": row[5],
             }
             return image_detail
         else:

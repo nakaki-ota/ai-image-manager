@@ -16,9 +16,8 @@ interface ImageMetaData {
   id: number;
   filename: string;
   image_path: string;
-  prompt: string;
-  negative_prompt: string;
   parameters: string;
+  search_text: string;
   rating: number;
 }
 

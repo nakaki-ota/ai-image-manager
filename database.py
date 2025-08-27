@@ -11,7 +11,6 @@ images_table = Table(
     Column("image_path", String, unique=True),
     Column("rating", Integer, default=0),
     Column("created_at", DateTime, default=datetime.datetime.now),
-    Column("prompt", Text),
-    Column("negative_prompt", Text),
-    Column("parameters", Text)
+    Column("parameters", Text),
+    Column("search_text", Text),
 )
