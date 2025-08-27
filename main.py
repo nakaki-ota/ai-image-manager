@@ -94,6 +94,10 @@ async def sync_images_to_db():
             parameters_raw = metadata["parameters"]
             search_text_data = parameters_raw.replace('\n', ' ').strip()
             
+            # ファイルの最終更新日時を取得
+            file_mtime_timestamp = os.path.getmtime(file_path)
+            file_datetime = datetime.datetime.fromtimestamp(file_mtime_timestamp)
+            
             try:
                 await db.execute(
                     """
@@ -101,7 +105,7 @@ async def sync_images_to_db():
                         filename, image_path, created_at, parameters, search_text, rating
                     ) VALUES (?, ?, ?, ?, ?, ?)
                     """,
-                    (filename, relative_path, datetime.datetime.now(), 
+                    (filename, relative_path, file_datetime, 
                      parameters_raw, search_text_data, 0)
                 )
                 print(f"Successfully inserted {filename} into database.")
@@ -117,7 +121,9 @@ async def sync_images_to_db():
 async def list_images_and_search(
     query: Optional[str] = None,
     page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1)
+    limit: int = Query(20, ge=1),
+    sort_by: Optional[str] = Query("created_at", pattern="^(created_at|rating)$"), # デフォルトはcreated_at
+    sort_order: Optional[str] = Query("desc", pattern="^(asc|desc)$") # デフォルトは降順
 ):
     offset = (page - 1) * limit
     async with aiosqlite.connect(DATABASE_PATH) as db:
@@ -129,15 +135,15 @@ async def list_images_and_search(
             where_clause = ""
             params = ()
 
-        # 検索結果の件数を取得 (既存のロジック)
         cursor = await db.execute(f"SELECT COUNT(*) FROM images {where_clause}", params)
         total_search_results_count = (await cursor.fetchone())[0]
 
-        # データベース全体の件数を取得 (新規追加)
         cursor = await db.execute("SELECT COUNT(*) FROM images")
         total_database_count = (await cursor.fetchone())[0]
 
-        # 画像リストを取得
+        # ソート条件を構築
+        order_by_clause = f"ORDER BY {sort_by} {sort_order}"
+
         cursor = await db.execute(
             f"""
             SELECT
@@ -145,7 +151,7 @@ async def list_images_and_search(
             FROM
                 images
             {where_clause}
-            ORDER BY created_at DESC
+            {order_by_clause}
             LIMIT ? OFFSET ?
             """,
             params + (limit, offset)
@@ -160,7 +166,7 @@ async def list_images_and_search(
                 "image_path": row[2],
                 "rating": row[3],
             })
-        
+
         return {
             "images": images,
             "total_search_results_count": total_search_results_count,

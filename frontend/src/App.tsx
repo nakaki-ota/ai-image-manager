@@ -44,6 +44,11 @@ function App() {
   
   const [imagesPerPage, setImagesPerPage] = useState<number>(25);
 
+  // ソート機能の状態変数
+  const [sortBy, setSortBy] = useState<string>('created_at'); // 'created_at' または 'rating'
+  const [sortOrder, setSortOrder] = useState<string>('desc'); // 'asc' または 'desc'
+
+
   const fetchImages = async (query = '', page = 1, limit = imagesPerPage) => {
     setLoading(true);
     setError(null);
@@ -54,6 +59,9 @@ function App() {
       }
       params.append('page', String(page));
       params.append('limit', String(limit));
+      // ソートパラメータを追加
+      params.append('sort_by', sortBy);
+      params.append('sort_order', sortOrder);
       
       const url = `${API_URL}/images?${params.toString()}`;
       const response = await fetch(url);
@@ -94,7 +102,7 @@ function App() {
 
   useEffect(() => {
     fetchImages('', 1, imagesPerPage);
-  }, []); // 依存配列を空にして、初回レンダリング時のみ実行するように変更
+  }, [imagesPerPage, sortBy, sortOrder]); // 依存配列に imagesPerPage, sortBy, sortOrder を追加
 
   const handleSearch = () => {
     fetchImages(searchQuery, 1, imagesPerPage);
@@ -190,6 +198,16 @@ function App() {
     fetchImages(searchQuery, 1, newLimit);
   };
 
+  const handleSortByChange = (event: SelectChangeEvent<string>) => {
+    setSortBy(event.target.value as string);
+    setCurrentPage(1); // ソート基準が変わったら1ページ目に戻る
+  };
+
+  const handleSortOrderChange = (event: SelectChangeEvent<string>) => {
+    setSortOrder(event.target.value as string);
+    setCurrentPage(1); // ソート順序が変わったら1ページ目に戻る
+  };
+
   const totalPages = Math.ceil((totalSearchResults || 0) / imagesPerPage); 
 
   const renderMetaData = (image: ImageMetaData | null) => {
@@ -272,6 +290,39 @@ function App() {
               <MenuItem value={200}>200</MenuItem>
             </Select>
           </FormControl>
+
+          {/* ソート基準のセレクトボックス */}
+          <FormControl sx={{ minWidth: 120 }}>
+            <InputLabel id="sort-by-label" size="small">ソート基準</InputLabel>
+            <Select
+              labelId="sort-by-label"
+              id="sort-by-select"
+              value={sortBy}
+              label="ソート基準"
+              onChange={handleSortByChange}
+              size="small"
+            >
+              <MenuItem value="created_at">作成日付</MenuItem>
+              <MenuItem value="rating">評価</MenuItem>
+            </Select>
+          </FormControl>
+
+          {/* ソート順序のセレクトボックス */}
+          <FormControl sx={{ minWidth: 120 }}>
+            <InputLabel id="sort-order-label" size="small">順序</InputLabel>
+            <Select
+              labelId="sort-order-label"
+              id="sort-order-select"
+              value={sortOrder}
+              label="順序"
+              onChange={handleSortOrderChange}
+              size="small"
+            >
+              <MenuItem value="desc">降順</MenuItem>
+              <MenuItem value="asc">昇順</MenuItem>
+            </Select>
+          </FormControl>
+
         </Box>
       </Box>
 
