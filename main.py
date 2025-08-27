@@ -10,6 +10,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import asyncio
+from PIL import Image
+from PIL.PngImagePlugin import PngImageFile
+import png # PyPNGをインポート
 
 app = FastAPI()
 
@@ -28,58 +31,84 @@ app.add_middleware(
 )
 
 DATABASE_PATH = "db/image_metadata.db"
+IMAGE_DIR = "images"
 
 class RatingUpdate(BaseModel):
     rating: int
 
 # 静的ファイル（画像）を提供するための設定
-app.mount("/images", StaticFiles(directory="images"), name="images")
+app.mount("/images", StaticFiles(directory=IMAGE_DIR), name="images")
 
-# 新しいエンドポイントを追加
-@app.post("/api/images/sync")
-async def sync_images_to_db():
-    """
-    Scans the images directory and updates the database with image metadata.
-    """
-    print("--- Starting database sync ---")
-
+@app.on_event("startup")
+async def startup_event():
     db_dir = os.path.dirname(DATABASE_PATH)
     if not os.path.exists(db_dir):
         os.makedirs(db_dir)
-        print(f"Created database directory: {db_dir}")
 
+# 画像のメタデータを抽出するヘルパー関数
+def extract_metadata(file_path: str):
+    """
+    PNG画像からPyPNGを使用してメタデータを抽出し、生のテキストとして返します。
+    """
+    prompt = ""
+    negative_prompt = ""
+    parameters_raw = ""
+
+    try:
+        with open(file_path, 'rb') as f:
+            reader = png.Reader(file=f)
+            
+            for chunk_type, chunk_data in reader.chunks():
+                if chunk_type == b'tEXt':
+                    text_str = chunk_data.decode('latin-1')
+                    key, value = text_str.split('\x00', 1)
+                    
+                    if key == "parameters":
+                        parameters_raw = value.strip()
+                        lines = parameters_raw.split('\n')
+                        if lines and lines[0]:
+                            # 最初の行をプロンプトとする
+                            prompt = lines[0].strip()
+                        
+                        # ネガティブプロンプトを抽出
+                        for line in lines[1:]:
+                            if line.startswith("Negative prompt:"):
+                                negative_prompt = line.replace("Negative prompt:", "").strip()
+                    
+                    # 'prompt'と'negative_prompt'が個別チャンクにある場合も考慮
+                    elif key == "prompt":
+                        prompt = value.strip()
+                    elif key == "negative_prompt":
+                        negative_prompt = value.strip()
+    
+    except Exception as e:
+        print(f"Error reading PNG metadata for {file_path}: {e}")
+
+    return {
+        "prompt": prompt,
+        "negative_prompt": negative_prompt,
+        "parameters": parameters_raw
+    }
+
+@app.post("/api/images/sync")
+async def sync_images_to_db():
+    print("--- Starting database sync ---")
     async with aiosqlite.connect(DATABASE_PATH) as db:
-        # テーブル存在チェックはAlembicに任せるため削除
-
         cursor = await db.execute("SELECT image_path FROM images")
         existing_paths = {row[0] for row in await cursor.fetchall()}
         
-        image_files = glob.glob(os.path.join("images", "**", "*.png"), recursive=True)
-        new_files = [f for f in image_files if os.path.relpath(f, "images") not in existing_paths]
+        image_files = glob.glob(os.path.join(IMAGE_DIR, "**", "*.png"), recursive=True)
+        new_files = [f for f in image_files if os.path.relpath(f, IMAGE_DIR) not in existing_paths]
         print(f"Found {len(new_files)} new images to process.")
         
         synced_count = 0
         
         for file_path in new_files:
-            relative_path = os.path.relpath(file_path, "images")
+            relative_path = os.path.relpath(file_path, IMAGE_DIR)
             filename = os.path.basename(file_path)
-            prompt = ""
-            negative_prompt = ""
-            parameters = "{}"
-
-            try:
-                # Read metadata from JSON file
-                metadata_path = os.path.join("images", os.path.splitext(filename)[0] + ".json")
-                if os.path.exists(metadata_path):
-                    with open(metadata_path, 'r', encoding='utf-8') as f:
-                        metadata = json.load(f)
-                    prompt = metadata.get("prompt", "")
-                    negative_prompt = metadata.get("negative_prompt", "")
-                    parameters = json.dumps(metadata.get("parameters", {}))
-                    print(f"Metadata loaded from JSON for: {filename}")
-            except Exception as e:
-                print(f"Error processing JSON metadata for {filename}: {e}")
-
+            
+            metadata = extract_metadata(file_path)
+            
             try:
                 await db.execute(
                     """
@@ -87,7 +116,8 @@ async def sync_images_to_db():
                         filename, image_path, created_at, prompt, negative_prompt, parameters, rating
                     ) VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (filename, relative_path, datetime.datetime.now(), prompt, negative_prompt, parameters, 0)
+                    (filename, relative_path, datetime.datetime.now(), 
+                     metadata["prompt"], metadata["negative_prompt"], metadata["parameters"], 0)
                 )
                 print(f"Successfully inserted {filename} into database.")
                 synced_count += 1
@@ -111,11 +141,12 @@ async def list_images_and_search(query: Optional[str] = None):
                     images
                 WHERE
                     prompt LIKE ? OR negative_prompt LIKE ?
+                ORDER BY created_at DESC
                 """,
                 (search_query, search_query)
             )
         else:
-            cursor = await db.execute("SELECT id, filename, image_path, rating FROM images")
+            cursor = await db.execute("SELECT id, filename, image_path, rating FROM images ORDER BY created_at DESC")
         
         rows = await cursor.fetchall()
         
@@ -129,6 +160,37 @@ async def list_images_and_search(query: Optional[str] = None):
             })
             
         return {"images": images}
+
+@app.get("/api/images/{image_id}")
+async def get_image_detail(image_id: int):
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cursor = await db.execute(
+            """
+            SELECT
+                id, filename, image_path, rating, created_at, prompt, negative_prompt, parameters
+            FROM
+                images
+            WHERE
+                id = ?
+            """,
+            (image_id,)
+        )
+        row = await cursor.fetchone()
+        
+        if row:
+            image_detail = {
+                "id": row[0],
+                "filename": row[1],
+                "image_path": row[2],
+                "rating": row[3],
+                "created_at": row[4],
+                "prompt": row[5],
+                "negative_prompt": row[6],
+                "parameters": row[7],
+            }
+            return image_detail
+        else:
+            raise HTTPException(status_code=404, detail="Image not found")
 
 @app.put("/api/images/{image_id}/rate")
 async def update_image_rating(image_id: int, rating_update: RatingUpdate):
