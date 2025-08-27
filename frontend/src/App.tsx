@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import './App.css';
 import { 
   Container, Grid, Card, CardMedia, Typography, TextField, Button, Box, Rating, CircularProgress, Alert,
-  Dialog, DialogContent, IconButton, Snackbar, Pagination
+  Dialog, DialogContent, IconButton, Snackbar, Pagination, FormControl, InputLabel, Select, MenuItem,
+  type SelectChangeEvent
 } from '@mui/material';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
 import SyncIcon from '@mui/icons-material/Sync';
@@ -11,7 +12,6 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 
 const API_URL = "http://localhost:8000/api";
 
-// 画像データ型定義 (簡略化)
 interface ImageMetaData {
   id: number;
   filename: string;
@@ -22,7 +22,6 @@ interface ImageMetaData {
   rating: number;
 }
 
-// APIレスポンスの型を定義
 interface ImagesResponse {
     images: ImageMetaData[];
     total_count: number;
@@ -33,19 +32,15 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // モーダル表示状態
   const [openModal, setOpenModal] = useState(false);
   const [selectedImage, setSelectedImage] = useState<ImageMetaData | null>(null);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
-
-  // ページネーションの状態管理
   const [currentPage, setCurrentPage] = useState(1);
   const [totalImages, setTotalImages] = useState(0);
-  const imagesPerPage = 20;
+  const [imagesPerPage, setImagesPerPage] = useState<number>(25);
 
-  const fetchImages = async (query = '', page = 1) => {
+  const fetchImages = async (query = '', page = 1, limit = imagesPerPage) => {
     setLoading(true);
     setError(null);
     try {
@@ -54,7 +49,7 @@ function App() {
         params.append('query', query);
       }
       params.append('page', String(page));
-      params.append('limit', String(imagesPerPage));
+      params.append('limit', String(limit));
       
       const url = `${API_URL}/images?${params.toString()}`;
       const response = await fetch(url);
@@ -76,7 +71,6 @@ function App() {
     }
   };
 
-  // 削除されていた関数を再追加
   const fetchImageDetail = async (imageId: number) => {
     try {
       const url = `${API_URL}/images/${imageId}`;
@@ -94,11 +88,11 @@ function App() {
   };
 
   useEffect(() => {
-    fetchImages('', 1);
+    fetchImages('', 1, imagesPerPage);
   }, []);
 
   const handleSearch = () => {
-    fetchImages(searchQuery, 1);
+    fetchImages(searchQuery, 1, imagesPerPage);
   };
 
   const handleRatingChange = async (imageId: number, newRating: number | null) => {
@@ -137,7 +131,7 @@ function App() {
         throw new Error('Failed to sync images');
       }
       const data = await response.json();
-      await fetchImages(searchQuery, 1);
+      await fetchImages(searchQuery, 1, imagesPerPage);
       setSnackbarMessage(data.message);
       setSnackbarOpen(true);
     } catch (err: any) {
@@ -182,7 +176,13 @@ function App() {
   };
 
   const handlePageChange = (event: React.ChangeEvent<unknown>, value: number) => {
-    fetchImages(searchQuery, value);
+    fetchImages(searchQuery, value, imagesPerPage);
+  };
+
+  const handleImagesPerPageChange = (event: SelectChangeEvent<number>) => {
+    const newLimit = event.target.value as number;
+    setImagesPerPage(newLimit);
+    fetchImages(searchQuery, 1, newLimit);
   };
 
   const totalPages = Math.ceil(totalImages / imagesPerPage);
@@ -208,50 +208,80 @@ function App() {
   };
 
   return (
-    <Container sx={{ pt: 4, pb: 4 }}>
-      <Box sx={{ p: 2 }}>
-        <Typography variant="h2" component="h1" gutterBottom>
-          AI Image Manager
-        </Typography>
-
-        <Box sx={{ display: 'flex', mb: 4, gap: 2 }}>
+    <Container sx={{ pt: 2, pb: 2 }}>
+      {/* 修正対象のBox */}
+      <Box 
+        sx={{
+          p: 1,
+          position: 'sticky',
+          top: 0,
+          zIndex: 10,
+          bgcolor: 'background.paper',
+        }}
+      >
+        <Box 
+          sx={{
+            display: 'flex',
+            mb: 1,
+            gap: 1,
+            alignItems: 'center',
+            flexWrap: 'wrap'
+          }}
+        >
           <TextField
             label="Search images..."
             variant="outlined"
             fullWidth
+            size="small"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
           <Button
             variant="contained"
-            size="large"
             onClick={handleSearch}
+            sx={{ height: '40px' }}
           >
-            Search
+            検索
           </Button>
           <Button
             variant="contained"
-            size="large"
             onClick={handleSync}
             disabled={loading}
             startIcon={<SyncIcon />}
+            sx={{ height: '40px', minWidth: '90px' }}
           >
-            {loading ? <CircularProgress size={24} color="inherit" /> : 'Sync Images'}
+            {loading ? <CircularProgress size={24} color="inherit" /> : '同期'}
           </Button>
+          <FormControl sx={{ minWidth: 120 }}>
+            <InputLabel id="images-per-page-label" size="small">件数</InputLabel>
+            <Select
+              labelId="images-per-page-label"
+              id="images-per-page-select"
+              value={imagesPerPage}
+              label="件数"
+              onChange={handleImagesPerPageChange}
+              size="small"
+            >
+              <MenuItem value={25}>25</MenuItem>
+              <MenuItem value={50}>50</MenuItem>
+              <MenuItem value={100}>100</MenuItem>
+              <MenuItem value={200}>200</MenuItem>
+            </Select>
+          </FormControl>
         </Box>
       </Box>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
 
       {loading && images.length === 0 ? (
         <Box sx={{ display: 'flex', justifyContent: 'center' }}><CircularProgress /></Box>
       ) : images.length > 0 ? (
         <>
-          <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
-            <Pagination count={totalPages} page={currentPage} onChange={handlePageChange} />
+          <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1 }}>
+            <Pagination count={totalPages} page={currentPage} onChange={handlePageChange} size="small" />
           </Box>
           
-          <Grid container spacing={2}>
+          <Grid container spacing={1}>
             {images.map((image: any) => (
               <Grid item xs={12} sm={6} md={4} lg={3} key={image.id}>
                 <Card sx={{ position: 'relative', cursor: 'pointer' }} onClick={() => handleOpenModal(image)}>
@@ -259,7 +289,7 @@ function App() {
                     component="img"
                     image={`http://localhost:8000/images/${image.image_path}`}
                     alt={image.filename}
-                    sx={{ height: 250, objectFit: 'contain' }}
+                    sx={{ height: 200, objectFit: 'cover' }}
                   />
   
                   <Box sx={{ 
@@ -290,12 +320,12 @@ function App() {
             ))}
           </Grid>
           
-          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-            <Pagination count={totalPages} page={currentPage} onChange={handlePageChange} />
+          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
+            <Pagination count={totalPages} page={currentPage} onChange={handlePageChange} size="small" />
           </Box>
         </>
       ) : (
-        <Typography variant="body1" sx={{ mt: 4, textAlign: 'center' }}>
+        <Typography variant="body1" sx={{ mt: 1, textAlign: 'center' }}>
           No images found. Try syncing images.
         </Typography>
       )}
