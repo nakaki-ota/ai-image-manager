@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import './App.css';
 import { 
   Container, Grid, Card, CardMedia, Typography, TextField, Button, Box, Rating, CircularProgress, Alert,
-  Dialog, DialogContent, IconButton, Snackbar
+  Dialog, DialogContent, IconButton, Snackbar, Pagination
 } from '@mui/material';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
 import SyncIcon from '@mui/icons-material/Sync';
@@ -34,6 +34,10 @@ function App() {
   const [snackbarOpen, setSnackbarOpen] = useState(false); // スナックバー表示状態
   const [snackbarMessage, setSnackbarMessage] = useState(''); // スナックバーメッセージ
 
+  // ページネーションの状態管理
+  const [currentPage, setCurrentPage] = useState(1);
+  const imagesPerPage = 20; // 1ページあたりの画像数
+
   const fetchImages = async (query = '') => {
     setLoading(true);
     setError(null);
@@ -45,6 +49,7 @@ function App() {
       }
       const data = await response.json();
       setImages(data.images);
+      setCurrentPage(1); // 検索・同期後は1ページ目に戻る
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -160,7 +165,17 @@ function App() {
     setSnackbarOpen(false);
   };
 
-  // 変更点: メタデータ表示を簡略化
+  // ページ変更ハンドラ
+  const handlePageChange = (event: React.ChangeEvent<unknown>, value: number) => {
+    setCurrentPage(value);
+  };
+
+  // 現在のページに表示する画像を計算
+  const indexOfLastImage = currentPage * imagesPerPage;
+  const indexOfFirstImage = indexOfLastImage - imagesPerPage;
+  const currentImages = images.slice(indexOfFirstImage, indexOfLastImage);
+  const totalPages = Math.ceil(images.length / imagesPerPage);
+
   const renderMetaData = (image: ImageMetaData | null) => {
     if (!image) return null;
 
@@ -220,44 +235,56 @@ function App() {
       {loading && images.length === 0 ? (
         <Box sx={{ display: 'flex', justifyContent: 'center' }}><CircularProgress /></Box>
       ) : images.length > 0 ? (
-        <Grid container spacing={2}>
-          {images.map((image: any) => (
-            <Grid item xs={12} sm={6} md={4} lg={3} key={image.id}>
-              <Card sx={{ position: 'relative', cursor: 'pointer' }} onClick={() => handleOpenModal(image)}>
-                <CardMedia
-                  component="img"
-                  image={`http://localhost:8000/images/${image.image_path}`}
-                  alt={image.filename}
-                  sx={{ height: 250, objectFit: 'contain' }}
-                />
-
-                <Box sx={{ 
-                  position: 'absolute', 
-                  bottom: 0, 
-                  right: 0, 
-                  backgroundColor: 'rgba(0,0,0,0.3)',
-                  borderRadius: '4px 0 0 0',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  p: 0.5 
-                }}>
-                  <Rating
-                    name={`rating-${image.id}`}
-                    value={image.rating || 0}
-                    precision={1}
-                    onChange={(event, newRating) => {
-                      event.stopPropagation();
-                      handleRatingChange(image.id, newRating);
-                    }}
-                    emptyIcon={<StarBorderIcon fontSize="inherit" style={{ color: 'white' }} />}
-                    sx={{ p: 0 }}
+        <>
+          {/* ページネーション（上） */}
+          <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
+            <Pagination count={totalPages} page={currentPage} onChange={handlePageChange} />
+          </Box>
+          
+          <Grid container spacing={2}>
+            {currentImages.map((image: any) => (
+              <Grid item xs={12} sm={6} md={4} lg={3} key={image.id}>
+                <Card sx={{ position: 'relative', cursor: 'pointer' }} onClick={() => handleOpenModal(image)}>
+                  <CardMedia
+                    component="img"
+                    image={`http://localhost:8000/images/${image.image_path}`}
+                    alt={image.filename}
+                    sx={{ height: 250, objectFit: 'contain' }}
                   />
-                </Box>
-              </Card>
-            </Grid>
-          ))}
-        </Grid>
+  
+                  <Box sx={{ 
+                    position: 'absolute', 
+                    bottom: 0, 
+                    right: 0, 
+                    backgroundColor: 'rgba(0,0,0,0.3)',
+                    borderRadius: '4px 0 0 0',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    p: 0.5 
+                  }}>
+                    <Rating
+                      name={`rating-${image.id}`}
+                      value={image.rating || 0}
+                      precision={1}
+                      onChange={(event, newRating) => {
+                        event.stopPropagation();
+                        handleRatingChange(image.id, newRating);
+                      }}
+                      emptyIcon={<StarBorderIcon fontSize="inherit" style={{ color: 'white' }} />}
+                      sx={{ p: 0 }}
+                    />
+                  </Box>
+                </Card>
+              </Grid>
+            ))}
+          </Grid>
+          
+          {/* ページネーション（下） */}
+          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
+            <Pagination count={totalPages} page={currentPage} onChange={handlePageChange} />
+          </Box>
+        </>
       ) : (
         <Typography variant="body1" sx={{ mt: 4, textAlign: 'center' }}>
           No images found. Try syncing images.

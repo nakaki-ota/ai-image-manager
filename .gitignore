@@ -13,3 +13,9 @@ dist/
 # IDE/OS specific
 .vscode/
 .DS_Store
+
+# Ignore images directory
+images/
+
+# Ignore database directory
+db/
