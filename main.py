@@ -5,14 +5,12 @@ import datetime
 import aiosqlite
 import re
 from typing import Optional
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import asyncio
-from PIL import Image
-from PIL.PngImagePlugin import PngImageFile
-import png # PyPNGをインポート
+import png
 
 app = FastAPI()
 
@@ -36,7 +34,6 @@ IMAGE_DIR = "images"
 class RatingUpdate(BaseModel):
     rating: int
 
-# 静的ファイル（画像）を提供するための設定
 app.mount("/images", StaticFiles(directory=IMAGE_DIR), name="images")
 
 @app.on_event("startup")
@@ -45,11 +42,7 @@ async def startup_event():
     if not os.path.exists(db_dir):
         os.makedirs(db_dir)
 
-# 画像のメタデータを抽出するヘルパー関数
 def extract_metadata(file_path: str):
-    """
-    PNG画像からPyPNGを使用してメタデータを抽出し、生のテキストとして返します。
-    """
     prompt = ""
     negative_prompt = ""
     parameters_raw = ""
@@ -67,15 +60,12 @@ def extract_metadata(file_path: str):
                         parameters_raw = value.strip()
                         lines = parameters_raw.split('\n')
                         if lines and lines[0]:
-                            # 最初の行をプロンプトとする
                             prompt = lines[0].strip()
                         
-                        # ネガティブプロンプトを抽出
                         for line in lines[1:]:
                             if line.startswith("Negative prompt:"):
                                 negative_prompt = line.replace("Negative prompt:", "").strip()
                     
-                    # 'prompt'と'negative_prompt'が個別チャンクにある場合も考慮
                     elif key == "prompt":
                         prompt = value.strip()
                     elif key == "negative_prompt":
@@ -129,25 +119,35 @@ async def sync_images_to_db():
     return {"message": f"Synced {synced_count} new images."}
 
 @app.get("/api/images")
-async def list_images_and_search(query: Optional[str] = None):
+async def list_images_and_search(
+    query: Optional[str] = None,
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1)
+):
+    offset = (page - 1) * limit
     async with aiosqlite.connect(DATABASE_PATH) as db:
-        if query:
-            search_query = f"%{query}%"
-            cursor = await db.execute(
-                """
-                SELECT
-                    id, filename, image_path, rating
-                FROM
-                    images
-                WHERE
-                    prompt LIKE ? OR negative_prompt LIKE ?
-                ORDER BY created_at DESC
-                """,
-                (search_query, search_query)
-            )
-        else:
-            cursor = await db.execute("SELECT id, filename, image_path, rating FROM images ORDER BY created_at DESC")
         
+        # 検索条件を構築
+        if query:
+            where_clause = "WHERE prompt LIKE ? OR negative_prompt LIKE ?"
+            params = (f"%{query}%", f"%{query}%")
+        else:
+            where_clause = ""
+            params = ()
+
+        # 画像リストを取得
+        cursor = await db.execute(
+            f"""
+            SELECT
+                id, filename, image_path, rating
+            FROM
+                images
+            {where_clause}
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            (*params, limit, offset)
+        )
         rows = await cursor.fetchall()
         
         images = []
@@ -158,8 +158,15 @@ async def list_images_and_search(query: Optional[str] = None):
                 "image_path": row[2],
                 "rating": row[3],
             })
-            
-        return {"images": images}
+
+        # 総件数を取得
+        cursor = await db.execute(f"SELECT COUNT(*) FROM images {where_clause}", params)
+        total_count = (await cursor.fetchone())[0]
+
+        return {
+            "images": images,
+            "total_count": total_count
+        }
 
 @app.get("/api/images/{image_id}")
 async def get_image_detail(image_id: int):

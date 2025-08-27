@@ -18,8 +18,14 @@ interface ImageMetaData {
   image_path: string;
   prompt: string;
   negative_prompt: string;
-  parameters: string; // JSON文字列として保存されていると想定
+  parameters: string;
   rating: number;
+}
+
+// APIレスポンスの型を定義
+interface ImagesResponse {
+    images: ImageMetaData[];
+    total_count: number;
 }
 
 function App() {
@@ -31,25 +37,38 @@ function App() {
   // モーダル表示状態
   const [openModal, setOpenModal] = useState(false);
   const [selectedImage, setSelectedImage] = useState<ImageMetaData | null>(null);
-  const [snackbarOpen, setSnackbarOpen] = useState(false); // スナックバー表示状態
-  const [snackbarMessage, setSnackbarMessage] = useState(''); // スナックバーメッセージ
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
 
   // ページネーションの状態管理
   const [currentPage, setCurrentPage] = useState(1);
-  const imagesPerPage = 20; // 1ページあたりの画像数
+  const [totalImages, setTotalImages] = useState(0);
+  const imagesPerPage = 20;
 
-  const fetchImages = async (query = '') => {
+  const fetchImages = async (query = '', page = 1) => {
     setLoading(true);
     setError(null);
     try {
-      const url = `${API_URL}/images${query ? `?query=${query}` : ''}`;
+      const params = new URLSearchParams();
+      if (query) {
+        params.append('query', query);
+      }
+      params.append('page', String(page));
+      params.append('limit', String(imagesPerPage));
+      
+      const url = `${API_URL}/images?${params.toString()}`;
       const response = await fetch(url);
+
       if (!response.ok) {
         throw new Error('Network response was not ok');
       }
-      const data = await response.json();
+
+      const data: ImagesResponse = await response.json();
+      
       setImages(data.images);
-      setCurrentPage(1); // 検索・同期後は1ページ目に戻る
+      setTotalImages(data.total_count);
+      setCurrentPage(page);
+
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -57,6 +76,7 @@ function App() {
     }
   };
 
+  // 削除されていた関数を再追加
   const fetchImageDetail = async (imageId: number) => {
     try {
       const url = `${API_URL}/images/${imageId}`;
@@ -74,11 +94,11 @@ function App() {
   };
 
   useEffect(() => {
-    fetchImages();
+    fetchImages('', 1);
   }, []);
 
   const handleSearch = () => {
-    fetchImages(searchQuery);
+    fetchImages(searchQuery, 1);
   };
 
   const handleRatingChange = async (imageId: number, newRating: number | null) => {
@@ -117,7 +137,7 @@ function App() {
         throw new Error('Failed to sync images');
       }
       const data = await response.json();
-      await fetchImages();
+      await fetchImages(searchQuery, 1);
       setSnackbarMessage(data.message);
       setSnackbarOpen(true);
     } catch (err: any) {
@@ -128,7 +148,6 @@ function App() {
     }
   };
 
-  // モーダルを開く処理
   const handleOpenModal = async (image: ImageMetaData) => {
     const detail = await fetchImageDetail(image.id);
     if (detail) {
@@ -137,13 +156,11 @@ function App() {
     }
   };
 
-  // モーダルを閉じる処理
   const handleCloseModal = () => {
     setOpenModal(false);
     setSelectedImage(null);
   };
 
-  // メタデータコピー処理
   const handleCopyMetaData = (metaData: string) => {
     navigator.clipboard.writeText(metaData)
       .then(() => {
@@ -157,7 +174,6 @@ function App() {
       });
   };
 
-  // スナックバーを閉じる処理
   const handleSnackbarClose = (event?: React.SyntheticEvent | Event, reason?: string) => {
     if (reason === 'clickaway') {
       return;
@@ -165,16 +181,11 @@ function App() {
     setSnackbarOpen(false);
   };
 
-  // ページ変更ハンドラ
   const handlePageChange = (event: React.ChangeEvent<unknown>, value: number) => {
-    setCurrentPage(value);
+    fetchImages(searchQuery, value);
   };
 
-  // 現在のページに表示する画像を計算
-  const indexOfLastImage = currentPage * imagesPerPage;
-  const indexOfFirstImage = indexOfLastImage - imagesPerPage;
-  const currentImages = images.slice(indexOfFirstImage, indexOfLastImage);
-  const totalPages = Math.ceil(images.length / imagesPerPage);
+  const totalPages = Math.ceil(totalImages / imagesPerPage);
 
   const renderMetaData = (image: ImageMetaData | null) => {
     if (!image) return null;
@@ -236,13 +247,12 @@ function App() {
         <Box sx={{ display: 'flex', justifyContent: 'center' }}><CircularProgress /></Box>
       ) : images.length > 0 ? (
         <>
-          {/* ページネーション（上） */}
           <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
             <Pagination count={totalPages} page={currentPage} onChange={handlePageChange} />
           </Box>
           
           <Grid container spacing={2}>
-            {currentImages.map((image: any) => (
+            {images.map((image: any) => (
               <Grid item xs={12} sm={6} md={4} lg={3} key={image.id}>
                 <Card sx={{ position: 'relative', cursor: 'pointer' }} onClick={() => handleOpenModal(image)}>
                   <CardMedia
@@ -280,7 +290,6 @@ function App() {
             ))}
           </Grid>
           
-          {/* ページネーション（下） */}
           <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
             <Pagination count={totalPages} page={currentPage} onChange={handlePageChange} />
           </Box>
@@ -291,7 +300,6 @@ function App() {
         </Typography>
       )}
 
-      {/* 画像詳細モーダル */}
       <Dialog open={openModal} onClose={handleCloseModal} maxWidth="md" fullWidth>
         <IconButton
           aria-label="close"
@@ -301,7 +309,7 @@ function App() {
             right: 8,
             top: 8,
             color: (theme) => theme.palette.grey[500],
-            zIndex: 1, // 最前面に配置
+            zIndex: 1,
           }}
         >
           <CloseIcon />
@@ -325,7 +333,6 @@ function App() {
         </DialogContent>
       </Dialog>
 
-      {/* スナックバー（コピー成功などの通知用） */}
       <Snackbar
         open={snackbarOpen}
         autoHideDuration={3000}
