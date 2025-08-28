@@ -11,17 +11,19 @@ from pydantic import BaseModel
 import asyncio
 import png
 
-# database.pyから必要な定義をインポート
-# Alembicを使用するため、ここではデータベース接続パスのみを定義
+# データベースファイルのパス
 DATABASE_PATH = "db/image_metadata.db"
+# 画像ディレクトリのパス (Docker Composeでマウントされる)
 IMAGE_DIR = "images"
 
+# 評価更新用のPydanticモデル
 class RatingUpdate(BaseModel):
     rating: int
 
+# FastAPIアプリケーションのインスタンスを作成
 app = FastAPI()
 
-# CORS設定
+# CORS設定 (フロントエンドからのアクセスを許可)
 origins = [
     "http://localhost",
     "http://localhost:5173",
@@ -35,8 +37,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 静的ファイルとして画像をマウント (コンテナ内の/app/imagesを/imagesとして公開)
 app.mount("/images", StaticFiles(directory=IMAGE_DIR), name="images")
 
+# PNGファイルからメタデータを抽出する関数
 def extract_metadata(file_path: str):
     prompt = ""
     negative_prompt = ""
@@ -46,6 +50,7 @@ def extract_metadata(file_path: str):
         with open(file_path, 'rb') as f:
             reader = png.Reader(file=f)
             
+            # PNGチャンクを走査して'tEXt'チャンクからパラメータを抽出
             for chunk_type, chunk_data in reader.chunks():
                 if chunk_type == b'tEXt':
                     text_str = chunk_data.decode('latin-1')
@@ -61,7 +66,7 @@ def extract_metadata(file_path: str):
                             if line.startswith("Negative prompt:"):
                                 negative_prompt = line.replace("Negative prompt:", "").strip()
                         
-                        break
+                        break # パラメータチャンクが見つかったら終了
     
     except Exception as e:
         print(f"Error reading PNG metadata for {file_path}: {e}")
@@ -72,26 +77,37 @@ def extract_metadata(file_path: str):
         "parameters": parameters_raw
     }
 
+# --- APIエンドポイント ---
+
+# 画像同期APIエンドポイント
 @app.post("/api/images/sync")
 async def sync_images_to_db():
     print("--- Starting database sync ---")
     async with aiosqlite.connect(DATABASE_PATH) as db:
+        # 既存の画像パスをDBから取得
         cursor = await db.execute("SELECT image_path FROM images")
         existing_paths = {row[0] for row in await cursor.fetchall()}
         
+        # IMAGE_DIR以下のPNGファイルを再帰的に検索
         image_files = glob.glob(os.path.join(IMAGE_DIR, "**", "*.png"), recursive=True)
+        
+        # 新しいファイルのみをフィルタリング
         new_files = [f for f in image_files if os.path.relpath(f, IMAGE_DIR) not in existing_paths]
+
         print(f"Found {len(new_files)} new images to process.")
         
         synced_count = 0
         
         for file_path in new_files:
+            # IMAGE_DIRを基準とした相対パスを取得
             relative_path = os.path.relpath(file_path, IMAGE_DIR)
             filename = os.path.basename(file_path)
             
+            # メタデータを抽出
             metadata = extract_metadata(file_path)
             
             parameters_raw = metadata["parameters"]
+            # 検索用に改行を削除したテキストを生成
             search_text_data = parameters_raw.replace('\n', ' ').strip()
             
             # ファイルの最終更新日時を取得
@@ -99,6 +115,7 @@ async def sync_images_to_db():
             file_datetime = datetime.datetime.fromtimestamp(file_mtime_timestamp)
             
             try:
+                # データベースに挿入
                 await db.execute(
                     """
                     INSERT INTO images (
@@ -113,21 +130,23 @@ async def sync_images_to_db():
             except Exception as e:
                 print(f"Error inserting {filename} into database: {e}")
 
-        await db.commit()
+        await db.commit() # 変更をコミット
     print(f"--- Database sync complete. Synced {synced_count} new images. ---")
     return {"message": f"Synced {synced_count} new images."}
 
+# 画像リストと検索APIエンドポイント
 @app.get("/api/images")
 async def list_images_and_search(
-    query: Optional[str] = None,
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1),
-    sort_by: Optional[str] = Query("created_at", pattern="^(created_at|rating)$"), # デフォルトはcreated_at
-    sort_order: Optional[str] = Query("desc", pattern="^(asc|desc)$") # デフォルトは降順
+    query: Optional[str] = None, # 検索クエリ
+    page: int = Query(1, ge=1), # ページ番号 (1以上)
+    limit: int = Query(20, ge=1), # 1ページあたりの表示件数 (1以上)
+    sort_by: Optional[str] = Query("created_at", pattern="^(created_at|rating)$"), # ソート基準 (デフォルトはcreated_at)
+    sort_order: Optional[str] = Query("desc", pattern="^(asc|desc)$") # ソート順序 (デフォルトは降順)
 ):
-    offset = (page - 1) * limit
+    offset = (page - 1) * limit # オフセットを計算
     async with aiosqlite.connect(DATABASE_PATH) as db:
         
+        # 検索条件のWHERE句とパラメータを構築
         if query:
             where_clause = "WHERE LOWER(search_text) LIKE ?"
             params = (f"%{query.lower()}%",)
@@ -135,15 +154,18 @@ async def list_images_and_search(
             where_clause = ""
             params = ()
 
+        # 検索結果の総件数を取得
         cursor = await db.execute(f"SELECT COUNT(*) FROM images {where_clause}", params)
         total_search_results_count = (await cursor.fetchone())[0]
 
+        # データベース全体の総件数を取得
         cursor = await db.execute("SELECT COUNT(*) FROM images")
         total_database_count = (await cursor.fetchone())[0]
 
-        # ソート条件を構築
+        # ソート条件のORDER BY句を構築
         order_by_clause = f"ORDER BY {sort_by} {sort_order}"
 
+        # 画像リストを取得
         cursor = await db.execute(
             f"""
             SELECT
@@ -154,7 +176,7 @@ async def list_images_and_search(
             {order_by_clause}
             LIMIT ? OFFSET ?
             """,
-            params + (limit, offset)
+            params + (limit, offset) # クエリパラメータとLIMIT/OFFSETを結合
         )
         rows = await cursor.fetchall()
         
@@ -173,9 +195,11 @@ async def list_images_and_search(
             "total_database_count": total_database_count
         }
 
+# 単一画像詳細取得APIエンドポイント
 @app.get("/api/images/{image_id}")
 async def get_image_detail(image_id: int):
     async with aiosqlite.connect(DATABASE_PATH) as db:
+        # 指定されたIDの画像詳細を取得
         cursor = await db.execute(
             """
             SELECT
@@ -189,7 +213,7 @@ async def get_image_detail(image_id: int):
         )
         row = await cursor.fetchone()
         
-        if row:
+        if row: # 画像が見つかった場合
             image_detail = {
                 "id": row[0],
                 "filename": row[1],
@@ -199,27 +223,30 @@ async def get_image_detail(image_id: int):
                 "parameters": row[5],
             }
             return image_detail
-        else:
+        else: # 画像が見つからない場合
             raise HTTPException(status_code=404, detail="Image not found")
 
+# 画像評価更新APIエンドポイント
 @app.put("/api/images/{image_id}/rate")
 async def update_image_rating(image_id: int, rating_update: RatingUpdate):
+    # 評価値のバリデーション
     if rating_update.rating < 0 or rating_update.rating > 5:
         raise HTTPException(status_code=400, detail="Invalid rating value. Must be an integer between 0 and 5.")
 
     try:
         async with aiosqlite.connect(DATABASE_PATH) as db:
+            # データベースの評価を更新
             await db.execute(
                 "UPDATE images SET rating = ? WHERE id = ?",
                 (rating_update.rating, image_id)
             )
-            await db.commit()
+            await db.commit() # 変更をコミット
         return {"message": f"Image {image_id} rating updated successfully."}
     except Exception as e:
         print(f"An error occurred while updating rating for image_id={image_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to update rating.")
 
-# --- 画像削除のエンドポイント ---
+# 画像削除APIエンドポイント
 @app.delete("/api/images/{image_id}")
 async def delete_image(image_id: int):
     async with aiosqlite.connect(DATABASE_PATH) as db:
@@ -231,6 +258,7 @@ async def delete_image(image_id: int):
             raise HTTPException(status_code=404, detail="Image not found in database.")
 
         image_relative_path = row[0]
+        # IMAGE_DIRと相対パスを結合してフルパスを構築
         image_full_path = os.path.join(IMAGE_DIR, image_relative_path)
 
         try:
@@ -239,16 +267,17 @@ async def delete_image(image_id: int):
                 os.remove(image_full_path)
                 print(f"Successfully deleted file: {image_full_path}")
             else:
+                # ファイルが見つからないがDBエントリは削除する場合
                 print(f"Warning: File not found on disk, but entry exists in DB: {image_full_path}")
             
             # 3. データベースからエントリを削除
             await db.execute("DELETE FROM images WHERE id = ?", (image_id,))
-            await db.commit()
+            await db.commit() # 変更をコミット
             
             return {"message": f"Image {image_id} and its file have been successfully deleted."}
-        except OSError as e:
+        except OSError as e: # ファイル操作に関するエラー
             print(f"Error deleting file {image_full_path}: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to delete file: {e}")
-        except Exception as e:
+        except Exception as e: # その他のデータベースエラー
             print(f"Error deleting image {image_id} from database: {e}")
             raise HTTPException(status_code=500, detail="Failed to delete image entry from database.")

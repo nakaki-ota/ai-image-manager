@@ -1,99 +1,115 @@
+// Reactのフックと基本的な型定義をインポート
 import { useState, useEffect } from 'react';
+// アプリケーション全体のCSSをインポート
 import './App.css';
+// Material-UI (MUI) の主要コンポーネントをインポート
 import { 
   Container, Grid, Card, CardMedia, Typography, TextField, Button, Box, Rating, CircularProgress, Alert,
   Dialog, DialogContent, IconButton, Snackbar, Pagination, FormControl, InputLabel, Select, MenuItem,
   type SelectChangeEvent, DialogTitle, DialogActions 
 } from '@mui/material';
-import StarBorderIcon from '@mui/icons-material/StarBorder';
-import SyncIcon from '@mui/icons-material/Sync';
-import CloseIcon from '@mui/icons-material/Close';
-import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import DeleteIcon from '@mui/icons-material/Delete'; 
-import ArrowBackIosIcon from '@mui/icons-material/ArrowBackIos'; // 左矢印アイコンを追加
-import ArrowForwardIosIcon from '@mui/icons-material/ArrowForwardIos'; // 右矢印アイコンを追加
+// Material-UIのアイコンをインポート
+import StarBorderIcon from '@mui/icons-material/StarBorder'; // 評価の星アイコン
+import SyncIcon from '@mui/icons-material/Sync'; // 同期アイコン
+import CloseIcon from '@mui/icons-material/Close'; // 閉じるアイコン
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'; // コピーアイコン
+import DeleteIcon from '@mui/icons-material/Delete'; // 削除アイコン
+import ArrowBackIosIcon from '@mui/icons-material/ArrowBackIos'; // 左矢印アイコン（前の画像へ）
+import ArrowForwardIosIcon from '@mui/icons-material/ArrowForwardIos'; // 右矢印アイコン（次の画像へ）
 
+// APIのベースURLを定数として定義
 const API_URL = "http://localhost:8000/api";
 
+// 画像メタデータのインターフェース定義
+// データベースから取得する画像の情報に対応
 interface ImageMetaData {
-  id: number;
-  filename: string;
-  image_path: string;
-  parameters: string;
-  search_text: string;
-  rating: number;
+  id: number; // 画像の一意なID
+  filename: string; // ファイル名
+  image_path: string; // 画像ファイルの相対パス
+  parameters: string; // 画像生成時の全パラメータ（改行あり、表示用）
+  search_text: string; // 検索用のパラメータ（改行なし）
+  rating: number; // ユーザーによる評価（0-5）
 }
 
+// 画像リストAPIレスポンスのインターフェース定義
 interface ImagesResponse {
-    images: ImageMetaData[];
-    total_search_results_count: number;
-    total_database_count: number;
+    images: ImageMetaData[]; // 取得した画像データの配列
+    total_search_results_count: number; // 検索条件に一致した画像の総件数
+    total_database_count: number;      // データベースに登録されている全画像の総件数
 }
 
+// メインアプリケーションコンポーネント
 function App() {
-  const [images, setImages] = useState<ImageMetaData[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [openModal, setOpenModal] = useState(false);
-  const [selectedImage, setSelectedImage] = useState<ImageMetaData | null>(null);
-  const [snackbarOpen, setSnackbarOpen] = useState(false);
-  const [snackbarMessage, setSnackbarMessage] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
+  // --- 状態変数（useState）の定義 ---
+  const [images, setImages] = useState<ImageMetaData[]>([]); // 表示する画像データの配列
+  const [searchQuery, setSearchQuery] = useState(''); // 検索バーの入力値
+  const [loading, setLoading] = useState(false); // APIリクエスト中のロード状態
+  const [error, setError] = useState<string | null>(null); // エラーメッセージ
+  const [openModal, setOpenModal] = useState(false); // 画像詳細モーダルの開閉状態
+  const [selectedImage, setSelectedImage] = useState<ImageMetaData | null>(null); // 詳細表示する画像データ
+  const [snackbarOpen, setSnackbarOpen] = useState(false); // スナックバー（一時的なメッセージ表示）の開閉状態
+  const [snackbarMessage, setSnackbarMessage] = useState(''); // スナックバーに表示するメッセージ
+  const [currentPage, setCurrentPage] = useState(1); // 現在のページ番号
   
+  // 検索結果の総件数とデータベース全体の総件数（初期値はnullで未ロード状態を示す）
   const [totalSearchResults, setTotalSearchResults] = useState<number | null>(null);
   const [totalDatabaseCount, setTotalDatabaseCount] = useState<number | null>(null);
   
-  const [imagesPerPage, setImagesPerPage] = useState<number>(25);
+  const [imagesPerPage, setImagesPerPage] = useState<number>(25); // 1ページあたりの表示画像数
 
-  const [sortBy, setSortBy] = useState<string>('created_at');
-  const [sortOrder, setSortOrder] = useState<string>('desc');
+  // ソート機能の状態変数
+  const [sortBy, setSortBy] = useState<string>('created_at'); // ソート基準 ('created_at'または'rating')
+  const [sortOrder, setSortOrder] = useState<string>('desc'); // ソート順序 ('asc'または'desc')
 
+  // 削除確認ダイアログの状態
   const [openConfirmDeleteDialog, setOpenConfirmDeleteDialog] = useState(false);
 
+  // --- API呼び出し関数 ---
 
+  // 画像リストをAPIからフェッチする非同期関数
   const fetchImages = async (query = '', page = 1, limit = imagesPerPage) => {
-    setLoading(true);
-    setError(null);
+    setLoading(true); // ロード開始
+    setError(null); // エラーをリセット
     try {
-      const params = new URLSearchParams();
+      const params = new URLSearchParams(); // URLクエリパラメータを構築
       if (query) {
-        params.append('query', query);
+        params.append('query', query); // 検索クエリがあれば追加
       }
-      params.append('page', String(page));
-      params.append('limit', String(limit));
-      params.append('sort_by', sortBy);
-      params.append('sort_order', sortOrder);
+      params.append('page', String(page)); // ページ番号を追加
+      params.append('limit', String(limit)); // 1ページあたりの画像数を追加
+      params.append('sort_by', sortBy); // ソート基準を追加
+      params.append('sort_order', sortOrder); // ソート順序を追加
       
-      const url = `${API_URL}/images?${params.toString()}`;
-      const response = await fetch(url);
+      const url = `${API_URL}/images?${params.toString()}`; // 完全なAPI URLを構築
+      const response = await fetch(url); // APIリクエストを実行
 
-      if (!response.ok) {
+      if (!response.ok) { // レスポンスが正常でなければエラーをスロー
         throw new Error('Network response was not ok');
       }
 
-      const data: ImagesResponse = await response.json();
+      const data: ImagesResponse = await response.json(); // JSONレスポンスをパース
       
-      setImages(data.images);
-      setTotalSearchResults(data.total_search_results_count);
-      setTotalDatabaseCount(data.total_database_count);
-      setCurrentPage(page);
+      setImages(data.images); // 取得した画像データをステートにセット
+      setTotalSearchResults(data.total_search_results_count); // 検索結果の総件数をセット
+      setTotalDatabaseCount(data.total_database_count); // DB全体の総件数をセット
+      setCurrentPage(page); // 現在のページをセット
 
-    } catch (err: any) {
+    } catch (err: any) { // エラーハンドリング
       setError(err.message);
     } finally {
-      setLoading(false);
+      setLoading(false); // ロード終了
     }
   };
 
+  // 特定の画像の詳細データをAPIからフェッチする非同期関数
   const fetchImageDetail = async (imageId: number) => {
     try {
-      const url = `${API_URL}/images/${imageId}`;
-      const response = await fetch(url);
+      const url = `${API_URL}/images/${imageId}`; // 特定の画像詳細API URL
+      const response = await fetch(url); // APIリクエストを実行
       if (!response.ok) {
         throw new Error('Failed to fetch image detail');
       }
-      const data: ImageMetaData = await response.json();
+      const data: ImageMetaData = await response.json(); // JSONレスポンスをパース
       return data;
     } catch (err: any) {
       console.error("Failed to fetch image detail:", err);
@@ -102,28 +118,34 @@ function App() {
     }
   };
 
-  useEffect(() => {
-    fetchImages('', 1, imagesPerPage);
-  }, [imagesPerPage, sortBy, sortOrder]);
+  // --- 副作用フック (useEffect) ---
 
+  // コンポーネマウント時および、imagesPerPage, sortBy, sortOrderが変更された時に画像をフェッチ
+  useEffect(() => {
+    fetchImages(searchQuery, 1, imagesPerPage); // 常に1ページ目からフェッチ
+  }, [imagesPerPage, sortBy, sortOrder]); // 依存配列: これらの値が変わると再実行
+
+  // --- イベントハンドラ ---
+
+  // 検索ボタンクリック時のハンドラ
   const handleSearch = () => {
-    fetchImages(searchQuery, 1, imagesPerPage);
+    fetchImages(searchQuery, 1, imagesPerPage); // 検索クエリで画像をフェッチ（1ページ目から）
   };
 
+  // 画像の評価（レーティング）変更時のハンドラ
   const handleRatingChange = async (imageId: number, newRating: number | null) => {
-    if (newRating === null) return;
+    if (newRating === null) return; // レーティングがnullなら何もしない
     
     try {
-      const response = await fetch(`${API_URL}/images/${imageId}/rate`, {
+      const response = await fetch(`${API_URL}/images/${imageId}/rate`, { // APIで評価を更新
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rating: newRating }),
       });
       if (!response.ok) {
         throw new Error('Rating update failed');
       }
+      // 成功したら表示中の画像リストの評価を更新
       setImages(prevImages =>
         prevImages.map(img =>
           (img.id === imageId ? { ...img, rating: newRating } : img)
@@ -135,44 +157,46 @@ function App() {
     }
   };
 
+  // 同期ボタンクリック時のハンドラ
   const handleSync = async () => {
-    setLoading(true);
-    setError(null);
+    setLoading(true); // ロード開始
+    setError(null); // エラーをリセット
     try {
-      const response = await fetch(`${API_URL}/images/sync`, {
-        method: 'POST',
-      });
+      const response = await fetch(`${API_URL}/images/sync`, { method: 'POST' }); // APIで画像を同期
       if (!response.ok) {
         throw new Error('Failed to sync images');
       }
-      const data = await response.json();
-      await fetchImages(searchQuery, 1, imagesPerPage);
-      setSnackbarMessage(data.message);
-      setSnackbarOpen(true);
+      const data = await response.json(); // レスポンスデータを取得
+      await fetchImages(searchQuery, 1, imagesPerPage); // 同期後、画像リストを再フェッチ（1ページ目から）
+      setSnackbarMessage(data.message); // スナックバーメッセージをセット
+      setSnackbarOpen(true); // スナックバーを表示
     } catch (err: any) {
       console.error('Failed to sync images:', err);
       setError('Failed to sync images. Check server logs for details.');
     } finally {
-      setLoading(false);
+      setLoading(false); // ロード終了
     }
   };
 
+  // 画像クリック時、詳細モーダルを開くハンドラ
   const handleOpenModal = async (image: ImageMetaData) => {
-    const detail = await fetchImageDetail(image.id);
+    const detail = await fetchImageDetail(image.id); // 詳細データをフェッチ
     if (detail) {
-      setSelectedImage(detail);
-      setOpenModal(true);
+      setSelectedImage(detail); // 選択画像をセット
+      setOpenModal(true); // モーダルを開く
     }
   };
 
+  // 詳細モーダルを閉じるハンドラ
   const handleCloseModal = () => {
-    setOpenModal(false);
-    setSelectedImage(null);
-    setOpenConfirmDeleteDialog(false);
+    setOpenModal(false); // モーダルを閉じる
+    setSelectedImage(null); // 選択画像をリセット
+    setOpenConfirmDeleteDialog(false); // 削除確認ダイアログも閉じる
   };
 
+  // メタデータコピーボタンクリック時のハンドラ
   const handleCopyMetaData = (metaData: string) => {
-    navigator.clipboard.writeText(metaData)
+    navigator.clipboard.writeText(metaData) // クリップボードにコピー
       .then(() => {
         setSnackbarMessage('メタデータをコピーしました！');
         setSnackbarOpen(true);
@@ -184,72 +208,81 @@ function App() {
       });
   };
 
+  // スナックバーを閉じるハンドラ
   const handleSnackbarClose = (event?: React.SyntheticEvent | Event, reason?: string) => {
-    if (reason === 'clickaway') {
+    if (reason === 'clickaway') { // クリックアウェイの場合は閉じない
       return;
     }
-    setSnackbarOpen(false);
+    setSnackbarOpen(false); // スナックバーを閉じる
   };
 
+  // ページネーションのページ変更時のハンドラ
   const handlePageChange = (event: React.ChangeEvent<unknown>, value: number) => {
-    fetchImages(searchQuery, value, imagesPerPage);
+    fetchImages(searchQuery, value, imagesPerPage); // 選択されたページで画像をフェッチ
   };
 
+  // 1ページあたりの画像数変更時のハンドラ
   const handleImagesPerPageChange = (event: SelectChangeEvent<number>) => {
     const newLimit = event.target.value as number;
-    setImagesPerPage(newLimit);
-    fetchImages(searchQuery, 1, newLimit);
+    setImagesPerPage(newLimit); // 新しい表示件数をセット
+    fetchImages(searchQuery, 1, newLimit); // 1ページ目から画像を再フェッチ
   };
 
+  // ソート基準変更時のハンドラ
   const handleSortByChange = (event: SelectChangeEvent<string>) => {
-    setSortBy(event.target.value as string);
-    setCurrentPage(1);
+    setSortBy(event.target.value as string); // ソート基準を更新
+    setCurrentPage(1); // 1ページ目に戻る
   };
 
+  // ソート順序変更時のハンドラ
   const handleSortOrderChange = (event: SelectChangeEvent<string>) => {
-    setSortOrder(event.target.value as string);
-    setCurrentPage(1);
+    setSortOrder(event.target.value as string); // ソート順序を更新
+    setCurrentPage(1); // 1ページ目に戻る
   };
 
+  // 削除アイコンクリック時のハンドラ（確認ダイアログを開く）
   const handleDeleteIconClick = () => {
     setOpenConfirmDeleteDialog(true);
   };
 
+  // 削除確認ダイアログで「削除」ボタン押下時のハンドラ
   const handleConfirmDelete = async () => {
     if (selectedImage) {
-      setLoading(true);
-      setError(null);
+      setLoading(true); // ロード開始
+      setError(null); // エラーをリセット
       try {
-        const response = await fetch(`${API_URL}/images/${selectedImage.id}`, {
+        const response = await fetch(`${API_URL}/images/${selectedImage.id}`, { // APIで画像を削除
           method: 'DELETE',
         });
         if (!response.ok) {
           throw new Error('ファイルの削除に失敗しました。');
         }
-        setSnackbarMessage('画像とデータベースエントリを削除しました。');
+        setSnackbarMessage('画像とデータベースエントリを削除しました。'); // 成功メッセージ
         setSnackbarOpen(true);
-        handleCloseModal();
-        await fetchImages(searchQuery, currentPage, imagesPerPage); 
+        handleCloseModal(); // 詳細モーダルを閉じる
+        await fetchImages(searchQuery, currentPage, imagesPerPage); // 画像リストを再取得して更新
       } catch (err: any) {
         console.error('画像の削除に失敗:', err);
         setError(`削除エラー: ${err.message}`);
         setSnackbarMessage('削除に失敗しました。');
         setSnackbarOpen(true);
       } finally {
-        setLoading(false);
-        setOpenConfirmDeleteDialog(false);
+        setLoading(false); // ロード終了
+        setOpenConfirmDeleteDialog(false); // 確認ダイアログを閉じる
       }
     }
   };
 
+  // 削除確認ダイアログで「キャンセル」ボタン押下時のハンドラ
   const handleCancelDelete = () => {
-    setOpenConfirmDeleteDialog(false);
+    setOpenConfirmDeleteDialog(false); // 確認ダイアログを閉じる
   };
 
-  // --- 前後の画像にナビゲートする関数を追加 ---
+  // 前後の画像にナビゲートする関数
   const handleNavigateImage = async (direction: 'prev' | 'next') => {
     if (!selectedImage) return;
 
+    // 現在のページ内での画像のインデックスを取得
     const currentIndex = images.findIndex(img => img.id === selectedImage.id);
     if (currentIndex === -1) return; // 現在の画像がリストに見つからない場合
 
@@ -260,9 +293,7 @@ function App() {
       newIndex = currentIndex + 1;
     }
 
-    // ページをまたぐナビゲーションの処理（簡易版）
-    // 実際にはAPIを再呼び出しして、前後のページの画像をフェッチする必要がある
-    // この例では、現在のページ内の画像のみを対象とします
+    // 現在のページ内で前後の画像があれば、その詳細を表示
     if (newIndex >= 0 && newIndex < images.length) {
       const nextImage = images[newIndex];
       const detail = await fetchImageDetail(nextImage.id);
@@ -279,12 +310,11 @@ function App() {
       }
 
       if (newPage !== currentPage) {
-        await fetchImages(searchQuery, newPage, imagesPerPage);
-        // 新しいページがロードされた後、適切な画像を再度選択する必要がある
-        // ここでは、新しいページの最初/最後の画像を選択する簡易的な実装
-        const newImages = await (await fetch(`${API_URL}/images?query=${searchQuery}&page=${newPage}&limit=${imagesPerPage}&sort_by=${sortBy}&sort_order=${sortOrder}`)).json();
-        if (newImages.images.length > 0) {
-          const targetImage = direction === 'prev' ? newImages.images[newImages.images.length - 1] : newImages.images[0];
+        // 新しいページをフェッチ
+        const newImagesResponse = await (await fetch(`${API_URL}/images?query=${searchQuery}&page=${newPage}&limit=${imagesPerPage}&sort_by=${sortBy}&sort_order=${sortOrder}`)).json();
+        if (newImagesResponse.images.length > 0) {
+          // 新しいページの最初または最後の画像を選択して詳細を表示
+          const targetImage = direction === 'prev' ? newImagesResponse.images[newImagesResponse.images.length - 1] : newImagesResponse.images[0];
           const detail = await fetchImageDetail(targetImage.id);
           if (detail) {
             setSelectedImage(detail);
@@ -295,8 +325,12 @@ function App() {
     }
   };
 
+  // 総ページ数を計算（検索結果の総件数に基づいて）
   const totalPages = Math.ceil((totalSearchResults || 0) / imagesPerPage); 
 
+  // --- UIレンダリング関数 ---
+
+  // 画像の詳細モーダル内でメタデータをレンダリングする関数
   const renderMetaData = (image: ImageMetaData | null) => {
     if (!image) return null;
 
@@ -317,8 +351,10 @@ function App() {
     );
   };
 
+  // --- メインレンダリング部分 ---
   return (
     <Container sx={{ pt: 2, pb: 2 }}>
+      {/* 検索バー、同期ボタン、件数・ソート選択を含むスティッキーヘッダー */}
       <Box 
         sx={{
           p: 1,
@@ -337,6 +373,7 @@ function App() {
             flexWrap: 'wrap'
           }}
         >
+          {/* 検索入力フィールド */}
           <TextField
             label="Search images..."
             variant="outlined"
@@ -345,6 +382,7 @@ function App() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
+          {/* 検索ボタン */}
           <Button
             variant="contained"
             onClick={handleSearch}
@@ -352,6 +390,7 @@ function App() {
           >
             検索
           </Button>
+          {/* 同期ボタン */}
           <Button
             variant="contained"
             onClick={handleSync}
@@ -361,6 +400,7 @@ function App() {
           >
             {loading ? <CircularProgress size={24} color="inherit" /> : '同期'}
           </Button>
+          {/* 1ページあたりの表示件数選択 */}
           <FormControl sx={{ minWidth: 120 }}>
             <InputLabel id="images-per-page-label" size="small">件数</InputLabel>
             <Select
@@ -413,19 +453,22 @@ function App() {
         </Box>
       </Box>
 
+      {/* エラーメッセージ表示 */}
       {error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
       
+      {/* ロード中または画像がない場合の表示 */}
       {loading && images.length === 0 ? (
         <Box sx={{ display: 'flex', justifyContent: 'center' }}><CircularProgress /></Box>
       ) : (
         <>
-          {/* ページネーション上部の件数表示 - 修正済み */}
+          {/* ページネーション上部の件数表示とページネーションコンポーネント */}
           <Box sx={{ display: 'flex', flexDirection: 'column', mb: 1 }}>
             <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', mb: 0.5 }}>
               <Typography variant="body1">
                 {(totalSearchResults || 0).toLocaleString()} 件 / {(totalDatabaseCount || 0).toLocaleString()} 件
               </Typography>
             </Box>
+            {/* 総検索結果が0より大きい場合のみページネーションを表示 */}
             {totalSearchResults !== null && totalSearchResults > 0 && (
               <Box sx={{ display: 'flex', justifyContent: 'center' }}>
                 <Pagination count={totalPages} page={currentPage} onChange={handlePageChange} size="small" />
@@ -433,6 +476,7 @@ function App() {
             )}
           </Box>
           
+          {/* 画像グリッド表示 */}
           {images.length > 0 ? (
             <Grid container spacing={1}>
               {images.map((image: any) => (
@@ -445,6 +489,7 @@ function App() {
                       sx={{ height: 200, objectFit: 'cover' }}
                     />
     
+                    {/* 画像サムネイル上の評価表示 */}
                     <Box sx={{ 
                       position: 'absolute', 
                       bottom: 0, 
@@ -461,7 +506,7 @@ function App() {
                         value={image.rating || 0}
                         precision={1}
                         onChange={(event, newRating) => {
-                          event.stopPropagation();
+                          event.stopPropagation(); // 親要素のonClick（モーダル表示）を防ぐ
                           handleRatingChange(image.id, newRating);
                         }}
                         emptyIcon={<StarBorderIcon fontSize="inherit" style={{ color: 'white' }} />}
@@ -473,18 +518,20 @@ function App() {
               ))}
             </Grid>
           ) : (
+            // 画像が見つからない場合のメッセージ
             <Typography variant="body1" sx={{ mt: 1, textAlign: 'center' }}>
               画像が見つかりません。画像を同期してみてください。
             </Typography>
           )}
 
-          {/* ページネーション下部の件数表示 - 修正済み */}
+          {/* ページネーション下部の件数表示とページネーションコンポーネント */}
           <Box sx={{ display: 'flex', flexDirection: 'column', mt: 1 }}>
             <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', mb: 0.5 }}>
               <Typography variant="body1">
                 {(totalSearchResults || 0).toLocaleString()} 件 / {(totalDatabaseCount || 0).toLocaleString()} 件
               </Typography>
             </Box>
+            {/* 総検索結果が0より大きい場合のみページネーションを表示 */}
             {totalSearchResults !== null && totalSearchResults > 0 && (
               <Box sx={{ display: 'flex', justifyContent: 'center' }}>
                 <Pagination count={totalPages} page={currentPage} onChange={handlePageChange} size="small" />
@@ -494,7 +541,9 @@ function App() {
         </>
       )}
 
+      {/* 画像詳細モーダル */}
       <Dialog open={openModal} onClose={handleCloseModal} maxWidth="md" fullWidth>
+        {/* モーダルを閉じるボタン */}
         <IconButton
           aria-label="close"
           onClick={handleCloseModal}
@@ -508,7 +557,7 @@ function App() {
         >
           <CloseIcon />
         </IconButton>
-        <DialogContent dividers sx={{ position: 'relative' }}> {/* position: 'relative' を追加 */}
+        <DialogContent dividers sx={{ position: 'relative' }}> {/* 相対位置指定のためposition: 'relative' */}
           {selectedImage && (
             <>
               {/* 前の画像へのナビゲーションボタン */}
@@ -517,19 +566,20 @@ function App() {
                   position: 'absolute',
                   left: 0,
                   top: '50%',
-                  transform: 'translateY(-50%)',
-                  zIndex: 2,
-                  bgcolor: 'rgba(255,255,255,0.7)',
-                  '&:hover': { bgcolor: 'rgba(255,255,255,0.9)' }
+                  transform: 'translateY(-50%)', // 垂直中央寄せ
+                  zIndex: 2, // 他の要素より手前に表示
+                  bgcolor: 'rgba(255,255,255,0.7)', // 半透明の背景
+                  '&:hover': { bgcolor: 'rgba(255,255,255,0.9)' } // ホバー時の背景色
                 }}
                 onClick={() => handleNavigateImage('prev')}
-                disabled={images.findIndex(img => img.id === selectedImage.id) === 0 && currentPage === 1} // 最初の画像かつ1ページ目の場合無効
+                disabled={images.findIndex(img => img.id === selectedImage.id) === 0 && currentPage === 1} // 最初の画像かつ1ページ目の場合無効化
                 size="large"
               >
                 <ArrowBackIosIcon />
               </IconButton>
 
               <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                {/* 詳細表示される画像 */}
                 <img 
                   src={`http://localhost:8000/images/${selectedImage.image_path}`} 
                   alt={selectedImage.filename} 
@@ -554,6 +604,7 @@ function App() {
                     <DeleteIcon fontSize="small" />
                   </IconButton>
                 </Box>
+                {/* 生成パラメータの表示 */}
                 {renderMetaData(selectedImage)}
               </Box>
 
@@ -563,13 +614,13 @@ function App() {
                   position: 'absolute',
                   right: 0,
                   top: '50%',
-                  transform: 'translateY(-50%)',
-                  zIndex: 2,
-                  bgcolor: 'rgba(255,255,255,0.7)',
-                  '&:hover': { bgcolor: 'rgba(255,255,255,0.9)' }
+                  transform: 'translateY(-50%)', // 垂直中央寄せ
+                  zIndex: 2, // 他の要素より手前に表示
+                  bgcolor: 'rgba(255,255,255,0.7)', // 半透明の背景
+                  '&:hover': { bgcolor: 'rgba(255,255,255,0.9)' } // ホバー時の背景色
                 }}
                 onClick={() => handleNavigateImage('next')}
-                disabled={images.findIndex(img => img.id === selectedImage.id) === images.length - 1 && currentPage === totalPages} // 最後の画像かつ最後のページの場合無効
+                disabled={images.findIndex(img => img.id === selectedImage.id) === images.length - 1 && currentPage === totalPages} // 最後の画像かつ最後のページの場合無効化
                 size="large"
               >
                 <ArrowForwardIosIcon />
@@ -600,13 +651,13 @@ function App() {
         </DialogActions>
       </Dialog>
 
-
+      {/* スナックバー（画面下部に表示される一時的な通知） */}
       <Snackbar
         open={snackbarOpen}
-        autoHideDuration={3000}
+        autoHideDuration={3000} // 3秒後に自動的に閉じる
         onClose={handleSnackbarClose}
         message={snackbarMessage}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }} // 左下隅に表示
       />
     </Container>
   );
