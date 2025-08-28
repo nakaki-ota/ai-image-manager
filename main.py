@@ -218,3 +218,37 @@ async def update_image_rating(image_id: int, rating_update: RatingUpdate):
     except Exception as e:
         print(f"An error occurred while updating rating for image_id={image_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to update rating.")
+
+# --- 画像削除のエンドポイント ---
+@app.delete("/api/images/{image_id}")
+async def delete_image(image_id: int):
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        # 1. データベースから画像のパスを取得
+        cursor = await db.execute("SELECT image_path FROM images WHERE id = ?", (image_id,))
+        row = await cursor.fetchone()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Image not found in database.")
+
+        image_relative_path = row[0]
+        image_full_path = os.path.join(IMAGE_DIR, image_relative_path)
+
+        try:
+            # 2. ディスクから画像ファイルを削除
+            if os.path.exists(image_full_path):
+                os.remove(image_full_path)
+                print(f"Successfully deleted file: {image_full_path}")
+            else:
+                print(f"Warning: File not found on disk, but entry exists in DB: {image_full_path}")
+            
+            # 3. データベースからエントリを削除
+            await db.execute("DELETE FROM images WHERE id = ?", (image_id,))
+            await db.commit()
+            
+            return {"message": f"Image {image_id} and its file have been successfully deleted."}
+        except OSError as e:
+            print(f"Error deleting file {image_full_path}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to delete file: {e}")
+        except Exception as e:
+            print(f"Error deleting image {image_id} from database: {e}")
+            raise HTTPException(status_code=500, detail="Failed to delete image entry from database.")

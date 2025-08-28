@@ -3,12 +3,13 @@ import './App.css';
 import { 
   Container, Grid, Card, CardMedia, Typography, TextField, Button, Box, Rating, CircularProgress, Alert,
   Dialog, DialogContent, IconButton, Snackbar, Pagination, FormControl, InputLabel, Select, MenuItem,
-  type SelectChangeEvent
+  type SelectChangeEvent, DialogTitle, DialogActions // DialogTitle と DialogActions を追加
 } from '@mui/material';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
 import SyncIcon from '@mui/icons-material/Sync';
 import CloseIcon from '@mui/icons-material/Close';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import DeleteIcon from '@mui/icons-material/Delete'; // DeleteIcon を追加
 
 const API_URL = "http://localhost:8000/api";
 
@@ -47,6 +48,9 @@ function App() {
   // ソート機能の状態変数
   const [sortBy, setSortBy] = useState<string>('created_at'); // 'created_at' または 'rating'
   const [sortOrder, setSortOrder] = useState<string>('desc'); // 'asc' または 'desc'
+
+  // 削除確認ダイアログの状態
+  const [openConfirmDeleteDialog, setOpenConfirmDeleteDialog] = useState(false);
 
 
   const fetchImages = async (query = '', page = 1, limit = imagesPerPage) => {
@@ -166,6 +170,7 @@ function App() {
   const handleCloseModal = () => {
     setOpenModal(false);
     setSelectedImage(null);
+    setOpenConfirmDeleteDialog(false); // モーダルを閉じる際に確認ダイアログも閉じる
   };
 
   const handleCopyMetaData = (metaData: string) => {
@@ -207,6 +212,45 @@ function App() {
     setSortOrder(event.target.value as string);
     setCurrentPage(1); // ソート順序が変わったら1ページ目に戻る
   };
+
+  // 削除アイコンクリック時のハンドラ
+  const handleDeleteIconClick = () => {
+    setOpenConfirmDeleteDialog(true);
+  };
+
+  // 削除確認ダイアログのOKボタンハンドラ
+  const handleConfirmDelete = async () => {
+    if (selectedImage) {
+      setLoading(true);
+      setError(null);
+      try {
+        const response = await fetch(`${API_URL}/images/${selectedImage.id}`, {
+          method: 'DELETE',
+        });
+        if (!response.ok) {
+          throw new Error('ファイルの削除に失敗しました。');
+        }
+        setSnackbarMessage('画像とデータベースエントリを削除しました。');
+        setSnackbarOpen(true);
+        handleCloseModal(); // 詳細モーダルを閉じる
+        await fetchImages(searchQuery, currentPage, imagesPerPage); // 画像リストを再取得して更新
+      } catch (err: any) {
+        console.error('画像の削除に失敗:', err);
+        setError(`削除エラー: ${err.message}`);
+        setSnackbarMessage('削除に失敗しました。');
+        setSnackbarOpen(true);
+      } finally {
+        setLoading(false);
+        setOpenConfirmDeleteDialog(false); // 確認ダイアログを閉じる
+      }
+    }
+  };
+
+  // 削除確認ダイアログのキャンセルボタンハンドラ
+  const handleCancelDelete = () => {
+    setOpenConfirmDeleteDialog(false);
+  };
+
 
   const totalPages = Math.ceil((totalSearchResults || 0) / imagesPerPage); 
 
@@ -434,11 +478,47 @@ function App() {
                   marginBottom: '16px'
                 }} 
               />
+              {/* ファイルパス表示と削除アイコンを追加 */}
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 2 }}>
+                <Typography variant="body2" color="textSecondary" sx={{ wordBreak: 'break-all' }}>
+                  **ファイルパス:** {selectedImage.image_path}
+                </Typography>
+                <IconButton 
+                  color="error" 
+                  size="small" 
+                  onClick={handleDeleteIconClick}
+                  sx={{ ml: 1 }}
+                >
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              </Box>
               {renderMetaData(selectedImage)}
             </Box>
           )}
         </DialogContent>
       </Dialog>
+
+      {/* 削除確認ダイアログ */}
+      <Dialog
+        open={openConfirmDeleteDialog}
+        onClose={handleCancelDelete}
+        aria-labelledby="alert-dialog-title"
+        aria-describedby="alert-dialog-description"
+      >
+        <DialogTitle id="alert-dialog-title">{"画像を削除しますか？"}</DialogTitle>
+        <DialogContent>
+          <Typography id="alert-dialog-description">
+            この操作は元に戻せません。データベースのエントリとディスク上の画像ファイルが削除されます。
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCancelDelete}>キャンセル</Button>
+          <Button onClick={handleConfirmDelete} color="error" autoFocus>
+            削除
+          </Button>
+        </DialogActions>
+      </Dialog>
+
 
       <Snackbar
         open={snackbarOpen}
