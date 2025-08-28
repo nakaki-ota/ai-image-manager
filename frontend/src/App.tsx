@@ -3,13 +3,15 @@ import './App.css';
 import { 
   Container, Grid, Card, CardMedia, Typography, TextField, Button, Box, Rating, CircularProgress, Alert,
   Dialog, DialogContent, IconButton, Snackbar, Pagination, FormControl, InputLabel, Select, MenuItem,
-  type SelectChangeEvent, DialogTitle, DialogActions // DialogTitle と DialogActions を追加
+  type SelectChangeEvent, DialogTitle, DialogActions 
 } from '@mui/material';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
 import SyncIcon from '@mui/icons-material/Sync';
 import CloseIcon from '@mui/icons-material/Close';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import DeleteIcon from '@mui/icons-material/Delete'; // DeleteIcon を追加
+import DeleteIcon from '@mui/icons-material/Delete'; 
+import ArrowBackIosIcon from '@mui/icons-material/ArrowBackIos'; // 左矢印アイコンを追加
+import ArrowForwardIosIcon from '@mui/icons-material/ArrowForwardIos'; // 右矢印アイコンを追加
 
 const API_URL = "http://localhost:8000/api";
 
@@ -22,11 +24,10 @@ interface ImageMetaData {
   rating: number;
 }
 
-// APIレスポンスの型を修正
 interface ImagesResponse {
     images: ImageMetaData[];
-    total_search_results_count: number; // 検索結果の総件数
-    total_database_count: number;      // DBに登録されている総件数
+    total_search_results_count: number;
+    total_database_count: number;
 }
 
 function App() {
@@ -40,16 +41,14 @@ function App() {
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   
-  const [totalSearchResults, setTotalSearchResults] = useState<number | null>(null); // nullで初期化
-  const [totalDatabaseCount, setTotalDatabaseCount] = useState<number | null>(null);    // nullで初期化
+  const [totalSearchResults, setTotalSearchResults] = useState<number | null>(null);
+  const [totalDatabaseCount, setTotalDatabaseCount] = useState<number | null>(null);
   
   const [imagesPerPage, setImagesPerPage] = useState<number>(25);
 
-  // ソート機能の状態変数
-  const [sortBy, setSortBy] = useState<string>('created_at'); // 'created_at' または 'rating'
-  const [sortOrder, setSortOrder] = useState<string>('desc'); // 'asc' または 'desc'
+  const [sortBy, setSortBy] = useState<string>('created_at');
+  const [sortOrder, setSortOrder] = useState<string>('desc');
 
-  // 削除確認ダイアログの状態
   const [openConfirmDeleteDialog, setOpenConfirmDeleteDialog] = useState(false);
 
 
@@ -63,7 +62,6 @@ function App() {
       }
       params.append('page', String(page));
       params.append('limit', String(limit));
-      // ソートパラメータを追加
       params.append('sort_by', sortBy);
       params.append('sort_order', sortOrder);
       
@@ -106,7 +104,7 @@ function App() {
 
   useEffect(() => {
     fetchImages('', 1, imagesPerPage);
-  }, [imagesPerPage, sortBy, sortOrder]); // 依存配列に imagesPerPage, sortBy, sortOrder を追加
+  }, [imagesPerPage, sortBy, sortOrder]);
 
   const handleSearch = () => {
     fetchImages(searchQuery, 1, imagesPerPage);
@@ -170,7 +168,7 @@ function App() {
   const handleCloseModal = () => {
     setOpenModal(false);
     setSelectedImage(null);
-    setOpenConfirmDeleteDialog(false); // モーダルを閉じる際に確認ダイアログも閉じる
+    setOpenConfirmDeleteDialog(false);
   };
 
   const handleCopyMetaData = (metaData: string) => {
@@ -205,20 +203,18 @@ function App() {
 
   const handleSortByChange = (event: SelectChangeEvent<string>) => {
     setSortBy(event.target.value as string);
-    setCurrentPage(1); // ソート基準が変わったら1ページ目に戻る
+    setCurrentPage(1);
   };
 
   const handleSortOrderChange = (event: SelectChangeEvent<string>) => {
     setSortOrder(event.target.value as string);
-    setCurrentPage(1); // ソート順序が変わったら1ページ目に戻る
+    setCurrentPage(1);
   };
 
-  // 削除アイコンクリック時のハンドラ
   const handleDeleteIconClick = () => {
     setOpenConfirmDeleteDialog(true);
   };
 
-  // 削除確認ダイアログのOKボタンハンドラ
   const handleConfirmDelete = async () => {
     if (selectedImage) {
       setLoading(true);
@@ -232,8 +228,8 @@ function App() {
         }
         setSnackbarMessage('画像とデータベースエントリを削除しました。');
         setSnackbarOpen(true);
-        handleCloseModal(); // 詳細モーダルを閉じる
-        await fetchImages(searchQuery, currentPage, imagesPerPage); // 画像リストを再取得して更新
+        handleCloseModal();
+        await fetchImages(searchQuery, currentPage, imagesPerPage); 
       } catch (err: any) {
         console.error('画像の削除に失敗:', err);
         setError(`削除エラー: ${err.message}`);
@@ -241,16 +237,63 @@ function App() {
         setSnackbarOpen(true);
       } finally {
         setLoading(false);
-        setOpenConfirmDeleteDialog(false); // 確認ダイアログを閉じる
+        setOpenConfirmDeleteDialog(false);
       }
     }
   };
 
-  // 削除確認ダイアログのキャンセルボタンハンドラ
   const handleCancelDelete = () => {
     setOpenConfirmDeleteDialog(false);
   };
 
+  // --- 前後の画像にナビゲートする関数を追加 ---
+  const handleNavigateImage = async (direction: 'prev' | 'next') => {
+    if (!selectedImage) return;
+
+    const currentIndex = images.findIndex(img => img.id === selectedImage.id);
+    if (currentIndex === -1) return; // 現在の画像がリストに見つからない場合
+
+    let newIndex = currentIndex;
+    if (direction === 'prev') {
+      newIndex = currentIndex - 1;
+    } else {
+      newIndex = currentIndex + 1;
+    }
+
+    // ページをまたぐナビゲーションの処理（簡易版）
+    // 実際にはAPIを再呼び出しして、前後のページの画像をフェッチする必要がある
+    // この例では、現在のページ内の画像のみを対象とします
+    if (newIndex >= 0 && newIndex < images.length) {
+      const nextImage = images[newIndex];
+      const detail = await fetchImageDetail(nextImage.id);
+      if (detail) {
+        setSelectedImage(detail);
+      }
+    } else {
+      // 現在のページの前/次の画像がない場合、ページを移動して画像をフェッチする
+      let newPage = currentPage;
+      if (direction === 'prev' && currentPage > 1) {
+        newPage = currentPage - 1;
+      } else if (direction === 'next' && currentPage < totalPages) {
+        newPage = currentPage + 1;
+      }
+
+      if (newPage !== currentPage) {
+        await fetchImages(searchQuery, newPage, imagesPerPage);
+        // 新しいページがロードされた後、適切な画像を再度選択する必要がある
+        // ここでは、新しいページの最初/最後の画像を選択する簡易的な実装
+        const newImages = await (await fetch(`${API_URL}/images?query=${searchQuery}&page=${newPage}&limit=${imagesPerPage}&sort_by=${sortBy}&sort_order=${sortOrder}`)).json();
+        if (newImages.images.length > 0) {
+          const targetImage = direction === 'prev' ? newImages.images[newImages.images.length - 1] : newImages.images[0];
+          const detail = await fetchImageDetail(targetImage.id);
+          if (detail) {
+            setSelectedImage(detail);
+            setCurrentPage(newPage);
+          }
+        }
+      }
+    }
+  };
 
   const totalPages = Math.ceil((totalSearchResults || 0) / imagesPerPage); 
 
@@ -465,35 +508,73 @@ function App() {
         >
           <CloseIcon />
         </IconButton>
-        <DialogContent dividers>
+        <DialogContent dividers sx={{ position: 'relative' }}> {/* position: 'relative' を追加 */}
           {selectedImage && (
-            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <img 
-                src={`http://localhost:8000/images/${selectedImage.image_path}`} 
-                alt={selectedImage.filename} 
-                style={{ 
-                  maxWidth: '100%', 
-                  maxHeight: '70vh',
-                  objectFit: 'contain',
-                  marginBottom: '16px'
-                }} 
-              />
-              {/* ファイルパス表示と削除アイコンを追加 */}
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 2 }}>
-                <Typography variant="body2" color="textSecondary" sx={{ wordBreak: 'break-all' }}>
-                  **ファイルパス:** {selectedImage.image_path}
-                </Typography>
-                <IconButton 
-                  color="error" 
-                  size="small" 
-                  onClick={handleDeleteIconClick}
-                  sx={{ ml: 1 }}
-                >
-                  <DeleteIcon fontSize="small" />
-                </IconButton>
+            <>
+              {/* 前の画像へのナビゲーションボタン */}
+              <IconButton
+                sx={{
+                  position: 'absolute',
+                  left: 0,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  zIndex: 2,
+                  bgcolor: 'rgba(255,255,255,0.7)',
+                  '&:hover': { bgcolor: 'rgba(255,255,255,0.9)' }
+                }}
+                onClick={() => handleNavigateImage('prev')}
+                disabled={images.findIndex(img => img.id === selectedImage.id) === 0 && currentPage === 1} // 最初の画像かつ1ページ目の場合無効
+                size="large"
+              >
+                <ArrowBackIosIcon />
+              </IconButton>
+
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <img 
+                  src={`http://localhost:8000/images/${selectedImage.image_path}`} 
+                  alt={selectedImage.filename} 
+                  style={{ 
+                    maxWidth: '100%', 
+                    maxHeight: '70vh',
+                    objectFit: 'contain',
+                    marginBottom: '16px'
+                  }} 
+                />
+                {/* ファイルパス表示と削除アイコン */}
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 2 }}>
+                  <Typography variant="body2" color="textSecondary" sx={{ wordBreak: 'break-all' }}>
+                    **ファイルパス:** {selectedImage.image_path}
+                  </Typography>
+                  <IconButton 
+                    color="error" 
+                    size="small" 
+                    onClick={handleDeleteIconClick}
+                    sx={{ ml: 1 }}
+                  >
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </Box>
+                {renderMetaData(selectedImage)}
               </Box>
-              {renderMetaData(selectedImage)}
-            </Box>
+
+              {/* 次の画像へのナビゲーションボタン */}
+              <IconButton
+                sx={{
+                  position: 'absolute',
+                  right: 0,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  zIndex: 2,
+                  bgcolor: 'rgba(255,255,255,0.7)',
+                  '&:hover': { bgcolor: 'rgba(255,255,255,0.9)' }
+                }}
+                onClick={() => handleNavigateImage('next')}
+                disabled={images.findIndex(img => img.id === selectedImage.id) === images.length - 1 && currentPage === totalPages} // 最後の画像かつ最後のページの場合無効
+                size="large"
+              >
+                <ArrowForwardIosIcon />
+              </IconButton>
+            </>
           )}
         </DialogContent>
       </Dialog>
