@@ -19,3 +19,4 @@ images/
 
 # Ignore database directory
 db/
+db/image_metadata.db
