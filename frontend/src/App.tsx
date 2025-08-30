@@ -120,7 +120,7 @@ function App() {
 
   // --- 副作用フック (useEffect) ---
 
-  // コンポーネマウント時および、imagesPerPage, sortBy, sortOrderが変更された時に画像をフェッチ
+  // コンポーネントマウント時および、imagesPerPage, sortBy, sortOrderが変更された時に画像をフェッチ
   useEffect(() => {
     fetchImages(searchQuery, 1, imagesPerPage); // 常に1ページ目からフェッチ
   }, [imagesPerPage, sortBy, sortOrder]); // 依存配列: これらの値が変わると再実行
@@ -310,20 +310,54 @@ function App() {
       }
 
       if (newPage !== currentPage) {
-        // 新しいページをフェッチ
-        const newImagesResponse = await (await fetch(`${API_URL}/images?query=${searchQuery}&page=${newPage}&limit=${imagesPerPage}&sort_by=${sortBy}&sort_order=${sortOrder}`)).json();
-        if (newImagesResponse.images.length > 0) {
-          // 新しいページの最初または最後の画像を選択して詳細を表示
-          const targetImage = direction === 'prev' ? newImagesResponse.images[newImagesResponse.images.length - 1] : newImagesResponse.images[0];
+        setLoading(true);
+        try {
+          const params = new URLSearchParams();
+          if (searchQuery) {
+            params.append('query', searchQuery);
+          }
+          params.append('page', String(newPage));
+          params.append('limit', String(imagesPerPage));
+          params.append('sort_by', sortBy);
+          params.append('sort_order', sortOrder);
+
+          const url = `${API_URL}/images?${params.toString()}`;
+          const response = await fetch(url);
+
+          if (!response.ok) {
+            throw new Error('Failed to fetch new page of images.');
+          }
+
+          const data: ImagesResponse = await response.json();
+          // 新しいページ全体の画像リストをステートにセット
+          setImages(data.images);
+          setCurrentPage(newPage);
+
+          // 新しいページで表示すべき画像を選択
+          let targetImage: ImageMetaData;
+          if (direction === 'prev') {
+            // 前のページに移動した場合、そのページの最後の画像を選択
+            targetImage = data.images[data.images.length - 1];
+          } else {
+            // 次のページに移動した場合、そのページの最初の画像を選択
+            targetImage = data.images[0];
+          }
+          
+          // 選択した画像の詳細情報を取得し、モーダルを更新
           const detail = await fetchImageDetail(targetImage.id);
           if (detail) {
             setSelectedImage(detail);
-            setCurrentPage(newPage);
           }
+        } catch (err: any) {
+          console.error('Failed to navigate to next/previous page:', err);
+          setError('Failed to load images from the new page.');
+        } finally {
+          setLoading(false);
         }
       }
     }
   };
+
 
   // 総ページ数を計算（検索結果の総件数に基づいて）
   const totalPages = Math.ceil((totalSearchResults || 0) / imagesPerPage); 
