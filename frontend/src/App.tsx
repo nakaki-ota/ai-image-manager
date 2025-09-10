@@ -6,7 +6,8 @@ import './App.css';
 import { 
   Container, Grid, Card, CardMedia, Typography, TextField, Button, Box, Rating, CircularProgress, Alert,
   Dialog, DialogContent, IconButton, Snackbar, Pagination, FormControl, InputLabel, Select, MenuItem,
-  type SelectChangeEvent, DialogTitle, DialogActions 
+  type SelectChangeEvent, DialogTitle, FormControlLabel, Radio, RadioGroup, Checkbox, FormGroup,
+  Popover, List, ListItem, ListItemText, ListItemIcon, DialogActions
 } from '@mui/material';
 // Material-UIのアイコンをインポート
 import StarBorderIcon from '@mui/icons-material/StarBorder'; // 評価の星アイコン
@@ -16,9 +17,13 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'; // コピーア�
 import DeleteIcon from '@mui/icons-material/Delete'; // 削除アイコン
 import ArrowBackIosIcon from '@mui/icons-material/ArrowBackIos'; // 左矢印アイコン（前の画像へ）
 import ArrowForwardIosIcon from '@mui/icons-material/ArrowForwardIos'; // 右矢印アイコン（次の画像へ）
+import AddIcon from '@mui/icons-material/Add'; // 追加アイコン
+import MenuIcon from '@mui/icons-material/Menu'; // メニューアイコン
 
 // APIのベースURLを定数として定義
 const API_URL = "http://localhost:8000/api";
+
+// --- 型定義 ---
 
 // 画像メタデータのインターフェース定義
 // データベースから取得する画像の情報に対応
@@ -36,6 +41,15 @@ interface ImagesResponse {
     images: ImageMetaData[]; // 取得した画像データの配列
     total_search_results_count: number; // 検索条件に一致した画像の総件数
     total_database_count: number;      // データベースに登録されている全画像の総件数
+}
+
+// プロンプト生成要素のグループとアイテムの型
+interface PromptElement {
+  id: number;
+  group_name: string;
+  item_name: string;
+  value: string; // 新しいプロンプト値（英単語）
+  type: 'radio' | 'checkbox';
 }
 
 // メインアプリケーションコンポーネント
@@ -63,6 +77,17 @@ function App() {
 
   // 削除確認ダイアログの状態
   const [openConfirmDeleteDialog, setOpenConfirmDeleteDialog] = useState(false);
+
+  // プロンプト生成ウィンドウの状態
+  const [openPromptDialog, setOpenPromptDialog] = useState(false);
+  const [promptElements, setPromptElements] = useState<PromptElement[]>([]);
+  const [selectedPromptItems, setSelectedPromptItems] = useState<{[key: string]: string[]}>({});
+  const [generatedPrompt, setGeneratedPrompt] = useState('');
+  
+  // プロンプト生成ウィンドウのメニュー状態
+  const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
+  const isMenuOpen = Boolean(menuAnchorEl);
+
 
   // --- API呼び出し関数 ---
 
@@ -118,12 +143,42 @@ function App() {
     }
   };
 
+  // プロンプト生成用の要素をAPIからフェッチ
+  const fetchPromptElements = async () => {
+    try {
+      const url = `${API_URL}/prompt_elements`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error('Failed to fetch prompt elements');
+      }
+      const data: PromptElement[] = await response.json();
+      setPromptElements(data);
+    } catch (err: any) {
+      console.error("Failed to fetch prompt elements:", err);
+    }
+  };
+
   // --- 副作用フック (useEffect) ---
 
   // コンポーネントマウント時および、imagesPerPage, sortBy, sortOrderが変更された時に画像をフェッチ
   useEffect(() => {
     fetchImages(searchQuery, 1, imagesPerPage); // 常に1ページ目からフェッチ
   }, [imagesPerPage, sortBy, sortOrder]); // 依存配列: これらの値が変わると再実行
+
+  // コンポーネントマウント時にプロンプト要素をフェッチ
+  useEffect(() => {
+    fetchPromptElements();
+  }, []);
+
+  // 選択されたプロンプト要素が変更されたらプロンプトを再生成
+  useEffect(() => {
+    const promptParts: string[] = [];
+    Object.keys(selectedPromptItems).forEach(groupName => {
+      promptParts.push(...selectedPromptItems[groupName]);
+    });
+    // 生成されたプロンプトを検索ボックスに自動的に反映
+    setGeneratedPrompt(promptParts.join(', '));
+  }, [selectedPromptItems]);
 
   // --- イベントハンドラ ---
 
@@ -284,18 +339,18 @@ function App() {
 
     // 現在のページ内での画像のインデックスを取得
     const currentIndex = images.findIndex(img => img.id === selectedImage.id);
-    if (currentIndex === -1) return; // 現在の画像がリストに見つからない場合
 
-    let newIndex = currentIndex;
-    if (direction === 'prev') {
-      newIndex = currentIndex - 1;
-    } else {
-      newIndex = currentIndex + 1;
+    // インデックスが見つからない場合は処理を中断
+    if (currentIndex === -1) {
+      console.error("Selected image not found in the current images array.");
+      return;
     }
 
+    const nextIndex = currentIndex + (direction === 'next' ? 1 : -1);
+
     // 現在のページ内で前後の画像があれば、その詳細を表示
-    if (newIndex >= 0 && newIndex < images.length) {
-      const nextImage = images[newIndex];
+    if (nextIndex >= 0 && nextIndex < images.length) {
+      const nextImage = images[nextIndex];
       const detail = await fetchImageDetail(nextImage.id);
       if (detail) {
         setSelectedImage(detail);
@@ -303,6 +358,7 @@ function App() {
     } else {
       // 現在のページの前/次の画像がない場合、ページを移動して画像をフェッチする
       let newPage = currentPage;
+      const totalPages = Math.ceil((totalSearchResults || 0) / imagesPerPage);
       if (direction === 'prev' && currentPage > 1) {
         newPage = currentPage - 1;
       } else if (direction === 'next' && currentPage < totalPages) {
@@ -358,11 +414,64 @@ function App() {
     }
   };
 
+  // プロンプト生成ウィンドウを開く
+  const handleOpenPromptDialog = () => {
+    setOpenPromptDialog(true);
+  };
+  
+  // プロンプト生成ウィンドウを閉じる
+  const handleClosePromptDialog = () => {
+    setOpenPromptDialog(false);
+  };
 
-  // 総ページ数を計算（検索結果の総件数に基づいて）
+  // 生成されたプロンプトをクリップボードにコピーする
+  const handleCopyPrompt = () => {
+    navigator.clipboard.writeText(generatedPrompt)
+      .then(() => {
+        setSnackbarMessage('プロンプトをコピーしました！');
+        setSnackbarOpen(true);
+        setOpenPromptDialog(false); // コピー後、ダイアログを閉じる
+      })
+      .catch(err => {
+        console.error('Failed to copy prompt:', err);
+        setSnackbarMessage('プロンプトのコピーに失敗しました。');
+        setSnackbarOpen(true);
+      });
+  };
+  
+  // プロンプト生成ウィンドウのラジオボタン/チェックボックス変更ハンドラ
+  const handlePromptItemChange = (groupName: string, itemValue: string, type: 'radio' | 'checkbox') => {
+    setSelectedPromptItems(prevItems => {
+      const newItems = { ...prevItems };
+      if (type === 'radio') {
+        // ラジオボタンの場合、同じグループ内の他の選択を解除
+        newItems[groupName] = [itemValue];
+      } else {
+        // チェックボックスの場合、選択/解除をトグル
+        const currentItems = newItems[groupName] || [];
+        const itemIndex = currentItems.indexOf(itemValue);
+        if (itemIndex > -1) {
+          // 既に存在する場合は削除
+          newItems[groupName] = currentItems.filter(item => item !== itemValue);
+        } else {
+          // 存在しない場合は追加
+          newItems[groupName] = [...currentItems, itemValue];
+        }
+      }
+      return newItems;
+    });
+  };
+
+  // プロンプト要素をグループごとに分類
+  const groupedPromptElements = promptElements.reduce<{[key: string]: PromptElement[]}>((acc, element) => {
+    if (!acc[element.group_name]) {
+      acc[element.group_name] = [];
+    }
+    acc[element.group_name].push(element);
+    return acc;
+  }, {});
+  
   const totalPages = Math.ceil((totalSearchResults || 0) / imagesPerPage); 
-
-  // --- UIレンダリング関数 ---
 
   // 画像の詳細モーダル内でメタデータをレンダリングする関数
   const renderMetaData = (image: ImageMetaData | null) => {
@@ -407,6 +516,16 @@ function App() {
             flexWrap: 'wrap'
           }}
         >
+          {/* プロンプト生成ボタン（メニュー） */}
+          <Button
+            variant="contained"
+            onClick={handleOpenPromptDialog}
+            startIcon={<AddIcon />}
+            sx={{ height: '40px', minWidth: '90px' }}
+          >
+            プロンプト生成
+          </Button>
+
           {/* 検索入力フィールド */}
           <TextField
             label="Search images..."
@@ -683,6 +802,87 @@ function App() {
             削除
           </Button>
         </DialogActions>
+      </Dialog>
+
+      {/* プロンプト生成ウィンドウ */}
+      <Dialog
+        open={openPromptDialog}
+        onClose={handleClosePromptDialog}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          プロンプト生成
+          <IconButton
+            aria-label="close"
+            onClick={handleClosePromptDialog}
+            sx={{
+              position: 'absolute',
+              right: 8,
+              top: 8,
+              color: (theme) => theme.palette.grey[500],
+            }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Box sx={{ mb: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+              <Typography variant="h6" sx={{ mr: 1 }}>生成されたプロンプト</Typography>
+              <IconButton size="small" onClick={handleCopyPrompt}>
+                <ContentCopyIcon fontSize="small" />
+              </IconButton>
+            </Box>
+            <TextField
+              fullWidth
+              multiline
+              rows={2}
+              value={generatedPrompt}
+              InputProps={{
+                readOnly: true,
+              }}
+            />
+          </Box>
+          <Grid container spacing={2}>
+            {Object.entries(groupedPromptElements).map(([groupName, elements]) => (
+              <Grid item xs={12} sm={6} key={groupName}>
+                <Typography variant="h6" sx={{ mb: 1 }}>{groupName}</Typography>
+                {elements[0].type === 'radio' ? (
+                  <RadioGroup
+                    value={selectedPromptItems[groupName]?.[0] || ''}
+                    onChange={(e) => handlePromptItemChange(groupName, e.target.value, 'radio')}
+                    sx={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap' }}
+                  >
+                    {elements.map(element => (
+                      <FormControlLabel
+                        key={element.id}
+                        value={element.value}
+                        control={<Radio />}
+                        label={element.item_name}
+                      />
+                    ))}
+                  </RadioGroup>
+                ) : (
+                  <FormGroup sx={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap' }}>
+                    {elements.map(element => (
+                      <FormControlLabel
+                        key={element.id}
+                        control={
+                          <Checkbox
+                            checked={selectedPromptItems[groupName]?.includes(element.value) || false}
+                            onChange={() => handlePromptItemChange(groupName, element.value, 'checkbox')}
+                          />
+                        }
+                        label={element.item_name}
+                      />
+                    ))}
+                  </FormGroup>
+                )}
+              </Grid>
+            ))}
+          </Grid>
+        </DialogContent>
       </Dialog>
 
       {/* スナックバー（画面下部に表示される一時的な通知） */}
