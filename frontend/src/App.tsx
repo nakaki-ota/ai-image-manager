@@ -1,7 +1,8 @@
 // Reactのフックと基本的な型定義をインポート
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 // アプリケーション全体のCSSをインポート
-import './App.css';
+// エラーの原因となっていた、存在しないCSSファイルのインポートを削除しました。
+// import './App.css';
 // Material-UI (MUI) の主要コンポーネントをインポート
 import { 
   Container, Grid, Card, CardMedia, Typography, TextField, Button, Box, Rating, CircularProgress, Alert,
@@ -52,7 +53,173 @@ interface PromptElement {
   type: 'radio' | 'checkbox';
 }
 
-// メインアプリケーションコンポーネント
+// --- 新しいコンポーネント: PromptGenerator ---
+// プロンプト生成ツールを独立したコンポーネントとして切り出し、再描画を局所化します。
+interface PromptGeneratorProps {
+  open: boolean; // ダイアログの開閉状態
+  onClose: () => void; // ダイアログを閉じるハンドラ
+  onGenerateAndCopy: (prompt: string) => void; // プロンプトを生成・コピーするハンドラ
+  onPromptFetchError: (message: string) => void; // エラーハンドラ
+}
+
+const PromptGenerator: React.FC<PromptGeneratorProps> = ({ open, onClose, onGenerateAndCopy, onPromptFetchError }) => {
+  // プロンプト生成用の要素の状態
+  const [promptElements, setPromptElements] = useState<PromptElement[]>([]);
+  // 選択されたプロンプトアイテムの状態
+  const [selectedPromptItems, setSelectedPromptItems] = useState<{[key: string]: string[]}>({});
+  // 生成されたプロンプト文字列の状態
+  const [generatedPrompt, setGeneratedPrompt] = useState('');
+  
+  // プロンプト生成用の要素をAPIからフェッチする関数
+  const fetchPromptElements = useCallback(async () => {
+    try {
+      const url = `${API_URL}/prompt_elements`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error('Failed to fetch prompt elements');
+      }
+      const data: PromptElement[] = await response.json();
+      setPromptElements(data);
+    } catch (err: any) {
+      console.error("Failed to fetch prompt elements:", err);
+      onPromptFetchError("プロンプト要素の取得に失敗しました。");
+    }
+  }, [onPromptFetchError]);
+
+  // コンポーネントがマウントされた時、またはダイアログが開いたときに要素をフェッチ
+  useEffect(() => {
+    if (open && promptElements.length === 0) {
+      fetchPromptElements();
+    }
+  }, [open, promptElements.length, fetchPromptElements]);
+  
+  // 選択されたプロンプト要素が変更されたらプロンプトを再生成
+  useEffect(() => {
+    const promptParts: string[] = [];
+    Object.keys(selectedPromptItems).forEach(groupName => {
+      promptParts.push(...selectedPromptItems[groupName]);
+    });
+    setGeneratedPrompt(promptParts.join(', '));
+  }, [selectedPromptItems]);
+
+  // プロンプト生成ウィンドウのラジオボタン/チェックボックス変更ハンドラ
+  const handlePromptItemChange = (groupName: string, itemValue: string, type: 'radio' | 'checkbox') => {
+    setSelectedPromptItems(prevItems => {
+      const newItems = { ...prevItems };
+      if (type === 'radio') {
+        // ラジオボタンの場合、同じグループ内の他の選択を解除
+        newItems[groupName] = [itemValue];
+      } else {
+        // チェックボックスの場合、選択/解除をトグル
+        const currentItems = newItems[groupName] || [];
+        const itemIndex = currentItems.indexOf(itemValue);
+        if (itemIndex > -1) {
+          // 既に存在する場合は削除
+          newItems[groupName] = currentItems.filter(item => item !== itemValue);
+        } else {
+          // 存在しない場合は追加
+          newItems[groupName] = [...currentItems, itemValue];
+        }
+      }
+      return newItems;
+    });
+  };
+
+  // プロンプト要素をグループごとに分類（パフォーマンス向上のためuseMemoを使用）
+  const groupedPromptElements = useMemo(() => {
+    return promptElements.reduce<{[key: string]: PromptElement[]}>((acc, element) => {
+      if (!acc[element.group_name]) {
+        acc[element.group_name] = [];
+      }
+      acc[element.group_name].push(element);
+      return acc;
+    }, {});
+  }, [promptElements]);
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="md"
+      fullWidth
+    >
+      <DialogTitle>
+        プロンプト生成
+        <IconButton
+          aria-label="close"
+          onClick={onClose}
+          sx={{
+            position: 'absolute',
+            right: 8,
+            top: 8,
+            color: (theme) => theme.palette.grey[500],
+          }}
+        >
+          <CloseIcon />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent dividers>
+        <Box sx={{ mb: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+            <Typography variant="h6" sx={{ mr: 1 }}>生成されたプロンプト</Typography>
+            <IconButton size="small" onClick={() => onGenerateAndCopy(generatedPrompt)}>
+              <ContentCopyIcon fontSize="small" />
+            </IconButton>
+          </Box>
+          <TextField
+            fullWidth
+            multiline
+            rows={2}
+            value={generatedPrompt}
+            InputProps={{
+              readOnly: true,
+            }}
+          />
+        </Box>
+        <Grid container spacing={2}>
+          {Object.entries(groupedPromptElements).map(([groupName, elements]) => (
+            <Grid item xs={12} sm={6} key={groupName}>
+              <Typography variant="h6" sx={{ mb: 1 }}>{groupName}</Typography>
+              {elements[0].type === 'radio' ? (
+                <RadioGroup
+                  value={selectedPromptItems[groupName]?.[0] || ''}
+                  onChange={(e) => handlePromptItemChange(groupName, e.target.value, 'radio')}
+                  sx={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap' }}
+                >
+                  {elements.map(element => (
+                    <FormControlLabel
+                      key={element.id}
+                      value={element.value}
+                      control={<Radio />}
+                      label={element.item_name}
+                    />
+                  ))}
+                </RadioGroup>
+              ) : (
+                <FormGroup sx={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap' }}>
+                  {elements.map(element => (
+                    <FormControlLabel
+                      key={element.id}
+                      control={
+                        <Checkbox
+                          checked={selectedPromptItems[groupName]?.includes(element.value) || false}
+                          onChange={() => handlePromptItemChange(groupName, element.value, 'checkbox')}
+                        />
+                      }
+                      label={element.item_name}
+                    />
+                  ))}
+                </FormGroup>
+              )}
+            </Grid>
+          ))}
+        </Grid>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+// --- メインアプリケーションコンポーネント ---
 function App() {
   // --- 状態変数（useState）の定義 ---
   const [images, setImages] = useState<ImageMetaData[]>([]); // 表示する画像データの配列
@@ -80,19 +247,11 @@ function App() {
 
   // プロンプト生成ウィンドウの状態
   const [openPromptDialog, setOpenPromptDialog] = useState(false);
-  const [promptElements, setPromptElements] = useState<PromptElement[]>([]);
-  const [selectedPromptItems, setSelectedPromptItems] = useState<{[key: string]: string[]}>({});
-  const [generatedPrompt, setGeneratedPrompt] = useState('');
   
-  // プロンプト生成ウィンドウのメニュー状態
-  const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
-  const isMenuOpen = Boolean(menuAnchorEl);
-
-
   // --- API呼び出し関数 ---
 
   // 画像リストをAPIからフェッチする非同期関数
-  const fetchImages = async (query = '', page = 1, limit = imagesPerPage) => {
+  const fetchImages = useCallback(async (query = '', page = 1, limit = imagesPerPage) => {
     setLoading(true); // ロード開始
     setError(null); // エラーをリセット
     try {
@@ -124,10 +283,10 @@ function App() {
     } finally {
       setLoading(false); // ロード終了
     }
-  };
+  }, [imagesPerPage, sortBy, sortOrder]);
 
   // 特定の画像の詳細データをAPIからフェッチする非同期関数
-  const fetchImageDetail = async (imageId: number) => {
+  const fetchImageDetail = useCallback(async (imageId: number) => {
     try {
       const url = `${API_URL}/images/${imageId}`; // 特定の画像詳細API URL
       const response = await fetch(url); // APIリクエストを実行
@@ -141,44 +300,14 @@ function App() {
       setError("Failed to load image details.");
       return null;
     }
-  };
-
-  // プロンプト生成用の要素をAPIからフェッチ
-  const fetchPromptElements = async () => {
-    try {
-      const url = `${API_URL}/prompt_elements`;
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error('Failed to fetch prompt elements');
-      }
-      const data: PromptElement[] = await response.json();
-      setPromptElements(data);
-    } catch (err: any) {
-      console.error("Failed to fetch prompt elements:", err);
-    }
-  };
+  }, []);
 
   // --- 副作用フック (useEffect) ---
 
   // コンポーネントマウント時および、imagesPerPage, sortBy, sortOrderが変更された時に画像をフェッチ
   useEffect(() => {
     fetchImages(searchQuery, 1, imagesPerPage); // 常に1ページ目からフェッチ
-  }, [imagesPerPage, sortBy, sortOrder]); // 依存配列: これらの値が変わると再実行
-
-  // コンポーネントマウント時にプロンプト要素をフェッチ
-  useEffect(() => {
-    fetchPromptElements();
-  }, []);
-
-  // 選択されたプロンプト要素が変更されたらプロンプトを再生成
-  useEffect(() => {
-    const promptParts: string[] = [];
-    Object.keys(selectedPromptItems).forEach(groupName => {
-      promptParts.push(...selectedPromptItems[groupName]);
-    });
-    // 生成されたプロンプトを検索ボックスに自動的に反映
-    setGeneratedPrompt(promptParts.join(', '));
-  }, [selectedPromptItems]);
+  }, [imagesPerPage, sortBy, sortOrder, fetchImages, searchQuery]); // 依存配列: これらの値が変わると再実行
 
   // --- イベントハンドラ ---
 
@@ -424,13 +553,16 @@ function App() {
     setOpenPromptDialog(false);
   };
 
-  // 生成されたプロンプトをクリップボードにコピーする
-  const handleCopyPrompt = () => {
-    navigator.clipboard.writeText(generatedPrompt)
+  // プロンプト生成ツールから受け取ったプロンプトを検索バーにセットしてコピーするハンドラ
+  const handleGenerateAndCopyPrompt = (prompt: string) => {
+    // 生成されたプロンプトを検索バーに自動反映
+    setSearchQuery(prompt);
+    // クリップボードにコピー
+    navigator.clipboard.writeText(prompt)
       .then(() => {
         setSnackbarMessage('プロンプトをコピーしました！');
         setSnackbarOpen(true);
-        setOpenPromptDialog(false); // コピー後、ダイアログを閉じる
+        handleClosePromptDialog(); // ダイアログを閉じる
       })
       .catch(err => {
         console.error('Failed to copy prompt:', err);
@@ -438,38 +570,6 @@ function App() {
         setSnackbarOpen(true);
       });
   };
-  
-  // プロンプト生成ウィンドウのラジオボタン/チェックボックス変更ハンドラ
-  const handlePromptItemChange = (groupName: string, itemValue: string, type: 'radio' | 'checkbox') => {
-    setSelectedPromptItems(prevItems => {
-      const newItems = { ...prevItems };
-      if (type === 'radio') {
-        // ラジオボタンの場合、同じグループ内の他の選択を解除
-        newItems[groupName] = [itemValue];
-      } else {
-        // チェックボックスの場合、選択/解除をトグル
-        const currentItems = newItems[groupName] || [];
-        const itemIndex = currentItems.indexOf(itemValue);
-        if (itemIndex > -1) {
-          // 既に存在する場合は削除
-          newItems[groupName] = currentItems.filter(item => item !== itemValue);
-        } else {
-          // 存在しない場合は追加
-          newItems[groupName] = [...currentItems, itemValue];
-        }
-      }
-      return newItems;
-    });
-  };
-
-  // プロンプト要素をグループごとに分類
-  const groupedPromptElements = promptElements.reduce<{[key: string]: PromptElement[]}>((acc, element) => {
-    if (!acc[element.group_name]) {
-      acc[element.group_name] = [];
-    }
-    acc[element.group_name].push(element);
-    return acc;
-  }, {});
   
   const totalPages = Math.ceil((totalSearchResults || 0) / imagesPerPage); 
 
@@ -804,87 +904,14 @@ function App() {
         </DialogActions>
       </Dialog>
 
-      {/* プロンプト生成ウィンドウ */}
-      <Dialog
-        open={openPromptDialog}
-        onClose={handleClosePromptDialog}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogTitle>
-          プロンプト生成
-          <IconButton
-            aria-label="close"
-            onClick={handleClosePromptDialog}
-            sx={{
-              position: 'absolute',
-              right: 8,
-              top: 8,
-              color: (theme) => theme.palette.grey[500],
-            }}
-          >
-            <CloseIcon />
-          </IconButton>
-        </DialogTitle>
-        <DialogContent dividers>
-          <Box sx={{ mb: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-              <Typography variant="h6" sx={{ mr: 1 }}>生成されたプロンプト</Typography>
-              <IconButton size="small" onClick={handleCopyPrompt}>
-                <ContentCopyIcon fontSize="small" />
-              </IconButton>
-            </Box>
-            <TextField
-              fullWidth
-              multiline
-              rows={2}
-              value={generatedPrompt}
-              InputProps={{
-                readOnly: true,
-              }}
-            />
-          </Box>
-          <Grid container spacing={2}>
-            {Object.entries(groupedPromptElements).map(([groupName, elements]) => (
-              <Grid item xs={12} sm={6} key={groupName}>
-                <Typography variant="h6" sx={{ mb: 1 }}>{groupName}</Typography>
-                {elements[0].type === 'radio' ? (
-                  <RadioGroup
-                    value={selectedPromptItems[groupName]?.[0] || ''}
-                    onChange={(e) => handlePromptItemChange(groupName, e.target.value, 'radio')}
-                    sx={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap' }}
-                  >
-                    {elements.map(element => (
-                      <FormControlLabel
-                        key={element.id}
-                        value={element.value}
-                        control={<Radio />}
-                        label={element.item_name}
-                      />
-                    ))}
-                  </RadioGroup>
-                ) : (
-                  <FormGroup sx={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap' }}>
-                    {elements.map(element => (
-                      <FormControlLabel
-                        key={element.id}
-                        control={
-                          <Checkbox
-                            checked={selectedPromptItems[groupName]?.includes(element.value) || false}
-                            onChange={() => handlePromptItemChange(groupName, element.value, 'checkbox')}
-                          />
-                        }
-                        label={element.item_name}
-                      />
-                    ))}
-                  </FormGroup>
-                )}
-              </Grid>
-            ))}
-          </Grid>
-        </DialogContent>
-      </Dialog>
-
+      {/* 新しい独立したプロンプト生成コンポーネントを配置 */}
+      <PromptGenerator 
+        open={openPromptDialog} 
+        onClose={handleClosePromptDialog} 
+        onGenerateAndCopy={handleGenerateAndCopyPrompt}
+        onPromptFetchError={setSnackbarMessage}
+      />
+      
       {/* スナックバー（画面下部に表示される一時的な通知） */}
       <Snackbar
         open={snackbarOpen}
