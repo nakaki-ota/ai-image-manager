@@ -4,7 +4,7 @@ import datetime
 import aiosqlite
 import re
 from typing import Optional, List
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -19,6 +19,14 @@ IMAGE_DIR = "images"
 # 評価更新用のPydanticモデル
 class RatingUpdate(BaseModel):
     rating: int
+
+# 新しいプロンプト要素モデル
+class PromptElement(BaseModel):
+    id: int
+    group_name: str
+    item_name: str
+    value: str # 新しいプロンプト値（英単語）
+    type: str # 'radio' or 'checkbox'
 
 # FastAPIアプリケーションのインスタンスを作成
 app = FastAPI()
@@ -77,51 +85,36 @@ def extract_metadata(file_path: str):
         "parameters": parameters_raw
     }
 
-# 新しいプロンプト要素モデル
-class PromptElement(BaseModel):
-    id: int
-    group_name: str
-    item_name: str
-    value: str # 新しいプロンプト値（英単語）
-    type: str # 'radio' or 'checkbox'
+# --- 変更点：データベース接続を依存性注入で管理 ---
+# 非同期データベース接続を管理する依存性注入用の関数
+async def get_db():
+    if not os.path.exists(DATABASE_PATH):
+        raise HTTPException(status_code=500, detail="Database file not found.")
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        yield db
 
-# --- APIエンドポイント ---
-
-# 新しいエンドポイント：プロンプト生成要素の提供
+# --- 変更点：/api/prompt_elementsエンドポイントをDBから取得するよう修正 ---
 @app.get("/api/prompt_elements", response_model=List[PromptElement])
-async def get_prompt_elements():
+async def get_prompt_elements(db: aiosqlite.Connection = Depends(get_db)):
     """
-    プロンプト生成のための要素（ラジオボタン、チェックボックス）を提供します。
-    このデータはハードコードされており、フロントエンドのUI構築に使用されます。
+    プロンプト生成のための要素をデータベースから取得して提供します。
     """
-    elements = [
-        # スタイルグループ（ラジオボタン）
-        {"id": 1, "group_name": "スタイル", "item_name": "フォトリアル", "value": "photorealistic", "type": "radio"},
-        {"id": 2, "group_name": "スタイル", "item_name": "アニメ", "value": "anime", "type": "radio"},
-        {"id": 3, "group_name": "スタイル", "item_name": "コミック", "value": "comic", "type": "radio"},
+    try:
+        cursor = await db.execute("SELECT id, group_name, item_name, value, type FROM prompt_elements")
+        rows = await cursor.fetchall()
         
-        # 被写体グループ（ラジオボタン）
-        {"id": 4, "group_name": "被写体", "item_name": "女性", "value": "woman", "type": "radio"},
-        {"id": 5, "group_name": "被写体", "item_name": "男性", "value": "man", "type": "radio"},
-        {"id": 6, "group_name": "被写体", "item_name": "ロボット", "value": "robot", "type": "radio"},
-        
-        # シーングループ（チェックボックス）
-        {"id": 7, "group_name": "シーン", "item_name": "森", "value": "forest", "type": "checkbox"},
-        {"id": 8, "group_name": "シーン", "item_name": "夜空", "value": "night_sky", "type": "checkbox"},
-        {"id": 9, "group_name": "シーン", "item_name": "サイバーパンク都市", "value": "cyberpunk_city", "type": "checkbox"},
-        {"id": 13, "group_name": "シーン", "item_name": "水中", "value": "underwater", "type": "checkbox"},
-        {"id": 14, "group_name": "シーン", "item_name": "宇宙", "value": "space", "type": "checkbox"},
-        {"id": 15, "group_name": "シーン", "item_name": "街", "value": "city", "type": "checkbox"},
-
-        # ムードグループ（チェックボックス）
-        {"id": 10, "group_name": "ムード", "item_name": "明るい", "value": "bright", "type": "checkbox"},
-        {"id": 11, "group_name": "ムード", "item_name": "暗い", "value": "dark", "type": "checkbox"},
-        {"id": 12, "group_name": "ムード", "item_name": "ファンタジー", "value": "fantasy", "type": "checkbox"},
-        {"id": 16, "group_name": "ムード", "item_name": "穏やか", "value": "calm", "type": "checkbox"},
-        {"id": 17, "group_name": "ムード", "item_name": "不穏", "value": "ominous", "type": "checkbox"},
-    ]
-    # Pydanticモデルのリストとして返す
-    return [PromptElement(**e) for e in elements]
+        elements = []
+        for row in rows:
+            elements.append(PromptElement(
+                id=row[0],
+                group_name=row[1],
+                item_name=row[2],
+                value=row[3],
+                type=row[4]
+            ))
+        return elements
+    except aiosqlite.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
 # 画像同期APIエンドポイント
 @app.post("/api/images/sync")
