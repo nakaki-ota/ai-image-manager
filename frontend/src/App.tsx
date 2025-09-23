@@ -596,7 +596,7 @@ function App() {
 
   // --- メインレンダリング部分 ---
   return (
-    <Container sx={{ pt: 2, pb: 2 }}>
+    <Container maxWidth={false} sx={{ pt: 2, pb: 2, maxWidth: '100%' }}>
       {/* 検索バー、同期ボタン、件数・ソート選択を含むスティッキーヘッダー */}
       <Box 
         sx={{
@@ -739,7 +739,7 @@ function App() {
                       component="img"
                       image={`http://localhost:8000/images/${image.image_path}`}
                       alt={image.filename}
-                      sx={{ height: 200, objectFit: 'cover' }}
+                      sx={{ height: 300, objectFit: 'cover' }}
                     />
     
                     {/* 画像サムネイル上の評価表示 */}
