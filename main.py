@@ -183,16 +183,22 @@ async def list_images_and_search(
     offset = (page - 1) * limit # オフセットを計算
     async with aiosqlite.connect(DATABASE_PATH) as db:
         
-        # 検索条件のWHERE句とパラメータを構築
+        # --- ここからAND検索ロジック ---
+        where_clauses = []
+        params = []
         if query:
-            where_clause = "WHERE LOWER(search_text) LIKE ?"
-            params = (f"%{query.lower()}%",)
-        else:
-            where_clause = ""
-            params = ()
+            # クエリ文字列をスペースで分割し、空の要素を削除
+            search_terms = query.lower().split()
+            if search_terms:
+                where_clauses = [f"LOWER(search_text) LIKE ?" for _ in search_terms]
+                params = [f"%{term}%" for term in search_terms]
+        
+        where_clause_str = " AND ".join(where_clauses)
+        if where_clause_str:
+            where_clause_str = f"WHERE {where_clause_str}"
 
         # 検索結果の総件数を取得
-        cursor = await db.execute(f"SELECT COUNT(*) FROM images {where_clause}", params)
+        cursor = await db.execute(f"SELECT COUNT(*) FROM images {where_clause_str}", tuple(params))
         total_search_results_count = (await cursor.fetchone())[0]
 
         # データベース全体の総件数を取得
@@ -206,14 +212,14 @@ async def list_images_and_search(
         cursor = await db.execute(
             f"""
             SELECT
-                id, filename, image_path, rating
+                id, filename, image_path, rating, parameters
             FROM
                 images
-            {where_clause}
+            {where_clause_str}
             {order_by_clause}
             LIMIT ? OFFSET ?
             """,
-            params + (limit, offset) # クエリパラメータとLIMIT/OFFSETを結合
+            tuple(params + [limit, offset]) # クエリパラメータとLIMIT/OFFSETを結合
         )
         rows = await cursor.fetchall()
         
@@ -224,6 +230,7 @@ async def list_images_and_search(
                 "filename": row[1],
                 "image_path": row[2],
                 "rating": row[3],
+                "parameters": row[4] # プロンプトを追加
             })
 
         return {
