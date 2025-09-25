@@ -307,7 +307,7 @@ function App() {
   // コンポーネントマウント時および、imagesPerPage, sortBy, sortOrderが変更された時に画像をフェッチ
   useEffect(() => {
     fetchImages(searchQuery, 1, imagesPerPage); // 常に1ページ目からフェッチ
-  }, [imagesPerPage, sortBy, sortOrder, fetchImages, searchQuery]); // 依存配列: これらの値が変わると再実行
+  }, [imagesPerPage, sortBy, sortOrder, fetchImages]); // 依存配列: これらの値が変わると再実行
 
   // --- イベントハンドラ ---
 
@@ -570,7 +570,13 @@ function App() {
         setSnackbarOpen(true);
       });
   };
-  
+
+  const handleSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      handleSearch();
+    }
+  };
+
   const totalPages = Math.ceil((totalSearchResults || 0) / imagesPerPage); 
 
   // 画像の詳細モーダル内でメタデータをレンダリングする関数
@@ -634,7 +640,8 @@ function App() {
             size="small"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-          />
+            onKeyDown={handleSearchKeyDown}
+         />
           {/* 検索ボタン */}
           <Button
             variant="contained"
@@ -753,13 +760,12 @@ function App() {
                       alignItems: 'center',
                       justifyContent: 'center',
                       p: 0.5 
-                    }}>
+                    }} onClick={e => e.stopPropagation()}>
                       <Rating
                         name={`rating-${image.id}`}
                         value={image.rating || 0}
                         precision={1}
                         onChange={(event, newRating) => {
-                          event.stopPropagation(); // 親要素のonClick（モーダル表示）を防ぐ
                           handleRatingChange(image.id, newRating);
                         }}
                         emptyIcon={<StarBorderIcon fontSize="inherit" style={{ color: 'white' }} />}
