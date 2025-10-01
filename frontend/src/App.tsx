@@ -879,13 +879,14 @@ function App() {
                     sx={{ 
                       position: 'relative', 
                       cursor: 'pointer',
-                      // 選択モードのスタイル追加
-                      border: isSelectionMode && selectedImageIds.includes(image.id) ? '4px solid' : 'none',
-                      borderColor: 'secondary.main',
-                      // transition: 'border 0.2s', // 選択時のアニメーション
                     }} 
-                    // 選択モードのクリック制御
-                    onClick={() => isSelectionMode ? handleSelectImage(image.id)({ stopPropagation: () => {} }) : handleOpenModal(image)}
+                    onClick={(e) => { // e を受け取る
+                        if (isSelectionMode) {
+                            handleSelectImage(image.id)(e); 
+                        } else {
+                            handleOpenModal(image);
+                        }
+                    }}
                   >
                     <CardMedia
                       component="img"
@@ -906,9 +907,9 @@ function App() {
                       }}>
                         <Checkbox
                           checked={selectedImageIds.includes(image.id)}
-                          onChange={handleSelectImage(image.id)}
+                          onChange={handleSelectImage(image.id)} 
                           color="secondary"
-                          onClick={(e) => e.stopPropagation()} // CardのonClickイベントを止める
+                          onClick={(e) => e.stopPropagation()} 
                         />
                       </Box>
                     )}
@@ -962,7 +963,7 @@ function App() {
             )}
           </Box>
         </>
-      )}
+          )}
 
       {/* 画像詳細モーダル */}
       <Dialog open={openModal} onClose={handleCloseModal} maxWidth="md" fullWidth>
