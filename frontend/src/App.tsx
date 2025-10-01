@@ -19,7 +19,8 @@ import DeleteIcon from '@mui/icons-material/Delete'; // 削除アイコン
 import ArrowBackIosIcon from '@mui/icons-material/ArrowBackIos'; // 左矢印アイコン（前の画像へ）
 import ArrowForwardIosIcon from '@mui/icons-material/ArrowForwardIos'; // 右矢印アイコン（次の画像へ）
 import AddIcon from '@mui/icons-material/Add'; // 追加アイコン
-import MenuIcon from '@mui/icons-material/Menu'; // メニューアイコン
+import SelectAllIcon from '@mui/icons-material/SelectAll';
+import CheckBoxIcon from '@mui/icons-material/CheckBox'; 
 
 // APIのベースURLを定数として定義
 const API_URL = "http://localhost:8000/api";
@@ -247,7 +248,13 @@ function App() {
 
   // プロンプト生成ウィンドウの状態
   const [openPromptDialog, setOpenPromptDialog] = useState(false);
-  
+
+  // 選択モードの状態管理
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedImageIds, setSelectedImageIds] = useState([]);
+
+  const [openConfirmMultiDeleteDialog, setOpenConfirmMultiDeleteDialog] = useState(false);
+
   // --- API呼び出し関数 ---
 
   // 画像リストをAPIからフェッチする非同期関数
@@ -600,6 +607,104 @@ function App() {
     );
   };
 
+  // 選択モードのトグル
+  const handleToggleSelectionMode = () => {
+    // 選択モードをOFFにする場合、選択をリセット
+    if (isSelectionMode) {
+      setSelectedImageIds([]);
+      setSnackbarMessage('選択モードを終了しました。');
+      setSnackbarOpen(true);
+    } else {
+      setSnackbarMessage('選択モードを開始しました。');
+      setSnackbarOpen(true);
+    }
+    setIsSelectionMode(prev => !prev);
+  };
+
+  // 画像選択/解除
+  const handleSelectImage = (imageId) => (event) => {
+    // チェックボックス外のクリックはモーダル表示を防ぐ
+    event.stopPropagation();
+    
+    setSelectedImageIds(prevIds => {
+      if (prevIds.includes(imageId)) {
+        // 解除
+        return prevIds.filter(id => id !== imageId);
+      } else {
+        // 選択
+        return [...prevIds, imageId];
+      }
+    });
+  };
+
+  // 複数削除確認ダイアログを開く
+  const handleOpenMultiDeleteDialog = () => {
+    // 選択された画像がない場合は何もしない（ボタンが非表示なので通常は呼ばれない）
+    if (selectedImageIds.length === 0) return;
+    setOpenConfirmMultiDeleteDialog(true);
+  };
+
+  // 複数削除確認ダイアログをキャンセル
+  const handleCancelMultiDelete = () => {
+    setOpenConfirmMultiDeleteDialog(false);
+  };
+
+  // 複数削除の実行 (1件でも失敗したら即座に中断, 成功したら再取得)
+  const handleConfirmMultiDelete = async () => {
+    if (selectedImageIds.length === 0) return;
+
+    const idsToDelete = [...selectedImageIds];
+    const totalCount = idsToDelete.length;
+
+    setLoading(true);
+    setOpenConfirmMultiDeleteDialog(false); // ダイアログを先に閉じる
+    setError(null);
+
+    try {
+      // すべての削除リクエストを配列に格納
+      const deletionPromises = idsToDelete.map(id => {
+        return fetch(`${API_URL}/images/${id}`, {
+          method: 'DELETE',
+        })
+        .then(response => {
+          if (!response.ok) {
+            // サーバーからのエラーレスポンスの場合、ここで reject して Promise.all を中断させる
+            throw new Error(`画像ID ${id} の削除に失敗しました (ステータス: ${response.status})`);
+          }
+          return response.json(); 
+        });
+      });
+
+      // Promise.all で実行し、1つでも失敗したら即座に catch へ飛ぶ
+      await Promise.all(deletionPromises);
+
+      // --- すべて成功した場合の処理 ---
+      
+      // 削除が完了した後、画像リストを再取得して更新
+      await fetchImages(searchQuery, currentPage, imagesPerPage); // ⭐ ここに再取得処理を追加 ⭐
+
+      // 状態をリセット
+      setSelectedImageIds([]);
+      setIsSelectionMode(false);
+      
+      setSnackbarMessage(`${totalCount} 件の画像とデータベースエントリを削除しました。`);
+      setSnackbarOpen(true);
+      
+    } catch (err: any) {
+      // --- 失敗した場合の処理 (Promise.all が reject した場合) ---
+      
+      console.error('一括削除中にエラーが発生し中断:', err);
+      setError(`削除エラーにより処理を中断しました: ${err.message}`);
+      setSnackbarMessage('一部の削除に失敗したため、処理を中断しました。');
+      setSnackbarOpen(true);
+      
+      // 処理が中断されたため、選択状態は維持される
+      
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // --- メインレンダリング部分 ---
   return (
     <Container maxWidth={false} sx={{ pt: 2, pb: 2, maxWidth: '100%' }}>
@@ -630,6 +735,17 @@ function App() {
             sx={{ height: '40px', minWidth: '90px' }}
           >
             プロンプト生成
+          </Button>
+
+          {/* 【追加】選択モードON/OFFボタン */}
+          <Button
+            variant={isSelectionMode ? "contained" : "outlined"}
+            color={isSelectionMode ? "secondary" : "primary"}
+            onClick={handleToggleSelectionMode}
+            startIcon={isSelectionMode ? <CheckBoxIcon /> : <SelectAllIcon />}
+            sx={{ height: '40px', minWidth: '90px' }}
+          >
+            {isSelectionMode ? `解除 (${selectedImageIds.length})` : '選択モード'}
           </Button>
 
           {/* 検索入力フィールド */}
@@ -734,27 +850,75 @@ function App() {
                 <Pagination count={totalPages} page={currentPage} onChange={handlePageChange} size="small" />
               </Box>
             )}
+            {/* 選択モード時のアクションバー */}
+            {isSelectionMode && selectedImageIds.length > 0 && (
+              <Box sx={{ position: 'sticky', top: '70px', zIndex: 9, bgcolor: 'secondary.light', p: 1, mt: 1, borderRadius: 1, textAlign: 'center' }}>
+                <Typography variant="body1" sx={{ color: 'white' }}>
+                  {selectedImageIds.length} 件選択中
+                </Typography>
+                <Button 
+                  variant="contained" 
+                  color="error" 
+                  startIcon={<DeleteIcon />} 
+                  // 【修正】削除確認ダイアログを開く関数を呼び出すように変更
+                  onClick={handleOpenMultiDeleteDialog}
+                  sx={{ mt: 1 }}
+                >
+                  選択画像を削除
+                </Button>
+              </Box>
+            )}
           </Box>
           
           {/* 画像グリッド表示 */}
           {images.length > 0 ? (
             <Grid container spacing={1}>
-              {images.map((image: any) => (
+              {images.map((image) => (
                 <Grid item xs={12} sm={6} md={4} lg={3} key={image.id}>
-                  <Card sx={{ position: 'relative', cursor: 'pointer' }} onClick={() => handleOpenModal(image)}>
+                  <Card 
+                    sx={{ 
+                      position: 'relative', 
+                      cursor: 'pointer',
+                      // 選択モードのスタイル追加
+                      border: isSelectionMode && selectedImageIds.includes(image.id) ? '4px solid' : 'none',
+                      borderColor: 'secondary.main',
+                      // transition: 'border 0.2s', // 選択時のアニメーション
+                    }} 
+                    // 選択モードのクリック制御
+                    onClick={() => isSelectionMode ? handleSelectImage(image.id)({ stopPropagation: () => {} }) : handleOpenModal(image)}
+                  >
                     <CardMedia
                       component="img"
                       image={`http://localhost:8000/images/${image.image_path}`}
                       alt={image.filename}
                       sx={{ height: 300, objectFit: 'cover' }}
                     />
+
+                    {/* 選択モードON時のチェックボックス */}
+                    {isSelectionMode && (
+                      <Box sx={{ 
+                        position: 'absolute', 
+                        top: 4, 
+                        left: 4, 
+                        zIndex: 3, 
+                        bgcolor: 'rgba(255,255,255,0.8)', 
+                        borderRadius: '50%' 
+                      }}>
+                        <Checkbox
+                          checked={selectedImageIds.includes(image.id)}
+                          onChange={handleSelectImage(image.id)}
+                          color="secondary"
+                          onClick={(e) => e.stopPropagation()} // CardのonClickイベントを止める
+                        />
+                      </Box>
+                    )}
     
                     {/* 画像サムネイル上の評価表示 */}
                     <Box sx={{ 
                       position: 'absolute', 
                       bottom: 0, 
                       right: 0, 
-                      backgroundColor: 'rgba(0,0,0,0.3)',
+                      backgroundColor: 'rgba(0,0,0,0.6)',
                       borderRadius: '4px 0 0 0',
                       display: 'flex',
                       alignItems: 'center',
@@ -769,7 +933,7 @@ function App() {
                           handleRatingChange(image.id, newRating);
                         }}
                         emptyIcon={<StarBorderIcon fontSize="inherit" style={{ color: 'white' }} />}
-                        sx={{ p: 0 }}
+                        sx={{ p: 0, color: 'gold' }}
                       />
                     </Box>
                   </Card>
@@ -906,6 +1070,28 @@ function App() {
           <Button onClick={handleCancelDelete}>キャンセル</Button>
           <Button onClick={handleConfirmDelete} color="error" autoFocus>
             削除
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 【追加】複数画像削除確認ダイアログ */}
+      <Dialog
+        open={openConfirmMultiDeleteDialog}
+        onClose={handleCancelMultiDelete}
+        aria-labelledby="multi-delete-dialog-title"
+      >
+        <DialogTitle id="multi-delete-dialog-title" color="error">
+          {selectedImageIds.length} 件の画像をまとめて削除しますか？
+        </DialogTitle>
+        <DialogContent>
+          <Typography>
+            この操作は元に戻せません。選択された画像（**{selectedImageIds.length}** 件）のデータベースエントリとファイルが削除されます。
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCancelMultiDelete}>キャンセル</Button>
+          <Button onClick={handleConfirmMultiDelete} variant="contained" color="error" autoFocus>
+            まとめて削除
           </Button>
         </DialogActions>
       </Dialog>
