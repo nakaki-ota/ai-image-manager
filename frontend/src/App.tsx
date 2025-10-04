@@ -705,6 +705,29 @@ function App() {
     }
   };
 
+  // 【新規】全選択/全解除のトグル処理
+  const handleToggleSelectAll = () => {
+    // 現在表示されている画像すべてのIDを取得
+    const currentImageIds = images.map(img => img.id);
+    
+    // 現在の選択数が表示画像数と一致していれば「全解除」と見なす
+    const isAllSelected = selectedImageIds.length === currentImageIds.length && currentImageIds.every(id => selectedImageIds.includes(id));
+
+    if (isAllSelected) {
+      // 全解除：現在の表示画像のIDをすべて選択から除外
+      setSelectedImageIds(prevIds => 
+        prevIds.filter(id => !currentImageIds.includes(id))
+      );
+      setSnackbarMessage('表示されている画像をすべて解除しました。');
+    } else {
+      // 全選択：現在の表示画像のIDをすべて選択に追加（重複はSetで除去可能だが、ここではシンプルに実装）
+      const newSelectedIds = new Set([...selectedImageIds, ...currentImageIds]);
+      setSelectedImageIds(Array.from(newSelectedIds));
+      setSnackbarMessage(`${currentImageIds.length} 件の画像をすべて選択しました。`);
+    }
+    setSnackbarOpen(true);
+  };
+
   // --- メインレンダリング部分 ---
   return (
     <Container maxWidth={false} sx={{ pt: 2, pb: 2, maxWidth: '100%' }}>
@@ -747,6 +770,59 @@ function App() {
           >
             {isSelectionMode ? `解除 (${selectedImageIds.length})` : '選択モード'}
           </Button>
+
+          {/* 選択モード時のアクションバー */}
+          {isSelectionMode && (
+            <Box 
+              sx={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: 1,
+                // 他の要素との視覚的な区切りと強調
+                bgcolor: selectedImageIds.length > 0 ? 'secondary.light' : 'action.hover', 
+                p: 1, 
+                borderRadius: 1, 
+                minHeight: '40px',
+                flexShrink: 0,
+              }}
+            >
+              {(() => {
+                const currentImageIds = images.map(img => img.id);
+                const isAllSelected = selectedImageIds.length === currentImageIds.length && currentImageIds.every(id => selectedImageIds.includes(id));
+                const buttonText = isAllSelected ? '全解除' : '全選択';
+
+                return (
+                  <Button
+                    variant="outlined"
+                    color="primary"
+                    onClick={handleToggleSelectAll}
+                    startIcon={isAllSelected ? <CheckBoxIcon /> : <SelectAllIcon />}
+                    sx={{ height: '40px', flexShrink: 0 }}
+                  >
+                    {buttonText}
+                  </Button>
+                );
+              })()}
+              <Typography variant="body1" sx={{ color: selectedImageIds.length > 0 ? 'white' : 'text.primary', fontWeight: 'bold' }}>
+                {selectedImageIds.length} 件選択中
+              </Typography>
+              <Button 
+                variant="contained" 
+                color="error" 
+                startIcon={<DeleteIcon />} 
+                onClick={handleOpenMultiDeleteDialog}
+                disabled={selectedImageIds.length === 0}
+                sx={{ 
+                  height: '40px',
+                  bgcolor: selectedImageIds.length > 0 ? 'error.main' : 'grey.400',
+                  '&:hover': { bgcolor: 'error.dark' },
+                  color: selectedImageIds.length === 0 ? 'text.disabled' : 'white',
+                }}
+              >
+                選択画像を削除
+              </Button>
+            </Box>
+          )} 
 
           {/* 検索入力フィールド */}
           <TextField
@@ -848,24 +924,6 @@ function App() {
             {totalSearchResults !== null && totalSearchResults > 0 && (
               <Box sx={{ display: 'flex', justifyContent: 'center' }}>
                 <Pagination count={totalPages} page={currentPage} onChange={handlePageChange} size="small" />
-              </Box>
-            )}
-            {/* 選択モード時のアクションバー */}
-            {isSelectionMode && selectedImageIds.length > 0 && (
-              <Box sx={{ position: 'sticky', top: '70px', zIndex: 9, bgcolor: 'secondary.light', p: 1, mt: 1, borderRadius: 1, textAlign: 'center' }}>
-                <Typography variant="body1" sx={{ color: 'white' }}>
-                  {selectedImageIds.length} 件選択中
-                </Typography>
-                <Button 
-                  variant="contained" 
-                  color="error" 
-                  startIcon={<DeleteIcon />} 
-                  // 【修正】削除確認ダイアログを開く関数を呼び出すように変更
-                  onClick={handleOpenMultiDeleteDialog}
-                  sx={{ mt: 1 }}
-                >
-                  選択画像を削除
-                </Button>
               </Box>
             )}
           </Box>
